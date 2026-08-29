@@ -4,6 +4,9 @@ set -euo pipefail
 pod="$(kubectl -n odp-data get pod -l app.kubernetes.io/name=spark-client -o jsonpath='{.items[0].metadata.name}')"
 kubectl -n odp-data cp examples/00-lakehouse-smoke/lakehouse_smoke.py "$pod:/tmp/lakehouse_smoke.py"
 
+# The single-quoted command is intentional: Spark/credential variables must expand
+# inside the target pod, not in the caller's shell.
+# shellcheck disable=SC2016
 kubectl -n odp-data exec "$pod" -- /bin/bash -ec '
   /opt/spark/bin/spark-submit \
     --master k8s://https://kubernetes.default.svc \
