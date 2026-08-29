@@ -59,3 +59,19 @@ components:
     image: "apache/airflow:3.3.1"
     scope: orchestration
     source: "https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html"
+  opentelemetryCollector:
+    version: "0.159.0"
+    image: "otel/opentelemetry-collector-contrib:0.159.0"
+    scope: telemetry-ingestion
+    source: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.159.0"
+  prometheus:
+    version: "3.13.2"
+    image: "prom/prometheus:v3.13.2"
+    scope: standalone-metrics-backend
+    rationale: "3.13 is the supported 2026 LTS line"
+    source: "https://prometheus.io/docs/introduction/release-cycle/"
+  grafana:
+    version: "13.1.3"
+    image: "grafana/grafana:13.1.3"
+    scope: standalone-observability-ui
+    source: "https://grafana.com/grafana/download?edition=oss"

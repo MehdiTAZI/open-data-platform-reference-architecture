@@ -24,12 +24,27 @@ secret_value() {
   kubectl -n "$namespace" get secret "$secret" -o "jsonpath={.data.${key}}" | decode_b64
 }
 
+ensure_grafana_secret() {
+  if kubectl -n odp-observability get secret grafana-credentials >/dev/null 2>&1; then
+    secret_value odp-observability grafana-credentials admin-password
+    return
+  fi
+
+  local password
+  password="$(rand_hex 24)"
+  kubectl -n odp-observability create secret generic grafana-credentials \
+    --from-literal=admin-password="$password" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  printf '%s' "$password"
+}
+
 write_local_credentials() {
   local garage_access="$1"
   local garage_secret="$2"
   local polaris_root_secret="$3"
   local postgres_user="$4"
   local postgres_password="$5"
+  local grafana_password="$6"
 
   mkdir -p .local
   chmod 700 .local
@@ -42,9 +57,13 @@ export ODP_POLARIS_CLIENT_SECRET='$polaris_root_secret'
 export ODP_POLARIS_REALM='odp'
 export ODP_POSTGRES_USER='$postgres_user'
 export ODP_POSTGRES_PASSWORD='$postgres_password'
+export ODP_GRAFANA_USER='admin'
+export ODP_GRAFANA_PASSWORD='$grafana_password'
 EOF
   chmod 600 .local/credentials.env
 }
+
+grafana_password="$(ensure_grafana_secret)"
 
 if kubectl -n odp-data get secret postgres-credentials >/dev/null 2>&1 \
   && kubectl -n odp-data get secret garage-credentials >/dev/null 2>&1 \
@@ -59,7 +78,7 @@ if kubectl -n odp-data get secret postgres-credentials >/dev/null 2>&1 \
 
   write_local_credentials \
     "$garage_access" "$garage_secret" "$polaris_root_secret" \
-    "$postgres_user" "$postgres_password"
+    "$postgres_user" "$postgres_password" "$grafana_password"
 
   echo "Reused existing standalone credentials and refreshed .local/credentials.env"
   exit 0
@@ -99,6 +118,6 @@ kubectl -n odp-system create secret generic polaris-root-credentials \
 
 write_local_credentials \
   "$garage_access" "$garage_secret" "$polaris_root_secret" \
-  "$postgres_user" "$postgres_password"
+  "$postgres_user" "$postgres_password" "$grafana_password"
 
 echo "Generated new ephemeral standalone credentials in .local/credentials.env"
