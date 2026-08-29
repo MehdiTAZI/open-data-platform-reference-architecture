@@ -1,0 +1,50 @@
+name: Lakehouse Integration
+
+on:
+  pull_request:
+    paths:
+      - "config/versions.yaml"
+      - "deployment/kubernetes/**"
+      - "infrastructure/environments/local/**"
+      - "scripts/**"
+      - "examples/00-lakehouse-smoke/**"
+      - ".github/workflows/lakehouse-integration.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * 2"
+
+permissions:
+  contents: read
+
+jobs:
+  spark-iceberg-polaris-trino:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.31.0
+          config: infrastructure/environments/local/kind-config.yaml
+          cluster_name: odp-local
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-yaml
+      - name: Validate repository
+        run: make validate
+      - name: Bootstrap complete standalone platform
+        run: ./scripts/local-up.sh
+      - name: Validate engine interoperability
+        run: make smoke-test
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n odp-system get jobs -o wide || true
+          kubectl -n odp-system logs job/polaris-bootstrap --all-containers --tail=200 || true
+          kubectl -n odp-system logs deployment/polaris --tail=200 || true
+          kubectl -n odp-system logs job/lakehouse-bootstrap --tail=200 || true
+          kubectl -n odp-data logs deployment/garage --tail=200 || true
+          kubectl -n odp-data logs deployment/trino --tail=200 || true
+          kubectl -n odp-data logs deployment/spark-client --tail=200 || true
