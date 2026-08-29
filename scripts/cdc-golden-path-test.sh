@@ -61,7 +61,7 @@ assert_source_silver_reconciled() {
     SELECT CAST(order_id AS VARCHAR), customer_id, date_format(order_ts, '%Y-%m-%d %H:%i:%s'),
            status, CAST(amount AS VARCHAR), country
     FROM polaris.silver.orders_cdc ORDER BY order_id
-  ")"
+  " | tr '\t' '|')"
   if [[ "$source_rows" != "$silver_rows" ]]; then
     echo "Source -> Silver reconciliation failed." >&2
     printf 'PostgreSQL:\n%s\nSilver:\n%s\n' "$source_rows" "$silver_rows" >&2
