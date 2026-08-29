@@ -28,6 +28,9 @@ kubectl -n odp-system rollout status deployment/polaris --timeout=300s
 kubectl -n odp-data rollout status deployment/trino --timeout=300s
 kubectl -n odp-data rollout status deployment/spark-client --timeout=180s
 kubectl -n odp-system rollout status deployment/airflow --timeout=420s
+kubectl -n odp-observability rollout status deployment/otel-collector --timeout=180s
+kubectl -n odp-observability rollout status deployment/prometheus --timeout=180s
+kubectl -n odp-observability rollout status deployment/grafana --timeout=240s
 
 echo
 echo "Standalone platform is ready."
