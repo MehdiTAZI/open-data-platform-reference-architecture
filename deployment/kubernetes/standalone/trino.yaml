@@ -21,6 +21,23 @@ data:
     node.environment=standalone
     node.id=odp-trino
     node.data-dir=/var/trino/data
+  polaris.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://polaris.odp-system.svc.cluster.local:8181/api/catalog
+    iceberg.rest-catalog.warehouse=odp
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential=root:${ENV:POLARIS_CLIENT_SECRET}
+    iceberg.rest-catalog.oauth2.server-uri=http://polaris.odp-system.svc.cluster.local:8181/api/catalog/v1/oauth/tokens
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
+    iceberg.rest-catalog.http-headers=Polaris-Realm: odp
+    iceberg.rest-catalog.vended-credentials-enabled=false
+    fs.s3.enabled=true
+    s3.endpoint=http://garage.odp-data.svc.cluster.local:3900
+    s3.region=garage
+    s3.path-style-access=true
+    s3.aws-access-key=${ENV:GARAGE_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:GARAGE_SECRET_KEY}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,8 +50,7 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app.kubernetes.io/name: trino
+    matchLabels: {app.kubernetes.io/name: trino}
   template:
     metadata:
       labels:
@@ -46,34 +62,33 @@ spec:
         - name: trino
           image: trinodb/trino:483
           imagePullPolicy: IfNotPresent
-          ports:
-            - {name: http, containerPort: 8080}
+          env:
+            - name: POLARIS_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: polaris-client-credentials, key: client-secret}}
+            - name: GARAGE_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: access-key}}
+            - name: GARAGE_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: secret-key}}
+          ports: [{name: http, containerPort: 8080}]
           startupProbe:
             httpGet: {path: /v1/info, port: http}
             failureThreshold: 60
             periodSeconds: 2
-          readinessProbe:
-            httpGet: {path: /v1/info, port: http}
-            periodSeconds: 5
-          livenessProbe:
-            httpGet: {path: /v1/info, port: http}
-            initialDelaySeconds: 30
-            periodSeconds: 10
+          readinessProbe: {httpGet: {path: /v1/info, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /v1/info, port: http}, initialDelaySeconds: 30, periodSeconds: 10}
           resources:
             requests: {cpu: 250m, memory: 1Gi}
             limits: {cpu: "2", memory: 1536Mi}
-          securityContext:
-            allowPrivilegeEscalation: false
+          securityContext: {allowPrivilegeEscalation: false}
           volumeMounts:
             - {name: config, mountPath: /etc/trino/config.properties, subPath: config.properties, readOnly: true}
             - {name: config, mountPath: /etc/trino/jvm.config, subPath: jvm.config, readOnly: true}
             - {name: config, mountPath: /etc/trino/node.properties, subPath: node.properties, readOnly: true}
+            - {name: config, mountPath: /etc/trino/catalog/polaris.properties, subPath: polaris.properties, readOnly: true}
             - {name: data, mountPath: /var/trino/data}
       volumes:
-        - name: config
-          configMap: {name: trino-config}
-        - name: data
-          emptyDir: {}
+        - {name: config, configMap: {name: trino-config}}
+        - {name: data, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
@@ -81,7 +96,5 @@ metadata:
   name: trino
   namespace: odp-data
 spec:
-  selector:
-    app.kubernetes.io/name: trino
-  ports:
-    - {name: http, port: 8080, targetPort: http}
+  selector: {app.kubernetes.io/name: trino}
+  ports: [{name: http, port: 8080, targetPort: http}]

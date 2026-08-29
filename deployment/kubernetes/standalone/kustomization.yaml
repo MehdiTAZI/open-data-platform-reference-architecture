@@ -3,11 +3,11 @@ kind: Kustomization
 resources:
   - ../base
   - network-policies.yaml
-  - observability-network-policies.yaml
   - postgres.yaml
   - garage.yaml
   - kafka.yaml
   - polaris.yaml
+  - polaris-setup.yaml
   - trino.yaml
   - spark.yaml
   - airflow.yaml

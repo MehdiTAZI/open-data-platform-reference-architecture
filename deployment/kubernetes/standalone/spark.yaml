@@ -20,13 +20,8 @@ metadata:
   name: spark-runtime
   namespace: odp-data
 subjects:
-  - kind: ServiceAccount
-    name: spark
-    namespace: odp-data
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: spark-runtime
+  - {kind: ServiceAccount, name: spark, namespace: odp-data}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-runtime}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -39,8 +34,7 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app.kubernetes.io/name: spark-client
+    matchLabels: {app.kubernetes.io/name: spark-client}
   template:
     metadata:
       labels:
@@ -50,12 +44,19 @@ spec:
       serviceAccountName: spark
       containers:
         - name: spark
-          image: apache/spark:4.2.0-python3
+          image: odp/spark-iceberg:4.1.3-iceberg1.11.0
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "-ec"]
           args: ["trap : TERM INT; sleep infinity & wait"]
+          env:
+            - {name: POLARIS_CLIENT_ID, value: root}
+            - name: POLARIS_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: polaris-client-credentials, key: client-secret}}
+            - name: GARAGE_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: access-key}}
+            - name: GARAGE_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: secret-key}}
           resources:
-            requests: {cpu: 100m, memory: 384Mi}
-            limits: {cpu: "1", memory: 1Gi}
-          securityContext:
-            allowPrivilegeEscalation: false
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1536Mi}
+          securityContext: {allowPrivilegeEscalation: false}
