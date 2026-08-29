@@ -1,12 +1,33 @@
 name: Standalone Integration
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/standalone.yml"
+      - "config/versions.yaml"
+      - "deployment/kubernetes/**"
+      - "infrastructure/environments/local/**"
+      - "platform/processing/spark/**"
+      - "platform/orchestration/airflow/**"
+      - "examples/golden-paths/**"
+      - "scripts/build-local-images.sh"
+      - "scripts/local-up.sh"
+      - "scripts/local-secrets.sh"
+      - "scripts/smoke-test.sh"
+      - "scripts/lakehouse-smoke-test.sh"
+      - "scripts/batch-golden-path-test.sh"
+      - "scripts/airflow-batch-test.sh"
+      - "scripts/cdc-golden-path-test.sh"
   workflow_dispatch:
   schedule:
     - cron: "23 3 * * 1"
 
 permissions:
   contents: read
+
+concurrency:
+  group: standalone-integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   full-standalone:
