@@ -33,9 +33,11 @@ jobs:
           version: v0.31.0
           config: infrastructure/environments/local/kind-config.yaml
           cluster_name: odp-local
-      - name: Validate baseline deployment contracts
+      - name: Create platform namespaces first
+        run: kubectl apply -f deployment/kubernetes/base/namespaces.yaml
+      - name: Validate standalone manifests against Kubernetes API
+        run: kubectl apply --dry-run=server -k deployment/kubernetes/standalone >/dev/null
+      - name: Validate baseline policies
         run: |
-          kubectl apply --dry-run=server -k deployment/kubernetes/standalone >/dev/null
-          kubectl apply -f deployment/kubernetes/base/namespaces.yaml
           kubectl apply -f deployment/kubernetes/base/default-deny.yaml
           kubectl get namespace odp-system odp-data odp-observability
