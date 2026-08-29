@@ -1,5 +1,5 @@
 # Standalone-specific allow rules layered on top of the base default-deny posture.
-# Production deployments must replace broad intra-plane rules with workload-specific flows.
+# Production deployments must replace broad local API rules with explicit network controls.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -155,8 +155,23 @@ spec:
       app.kubernetes.io/name: spark-client
   egress:
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 443}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-airflow-kubernetes-api
+  namespace: odp-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: airflow
+  egress:
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
       ports:
         - {protocol: TCP, port: 443}
   policyTypes: [Egress]

@@ -53,6 +53,35 @@ jobs:
             examples/golden-paths/batch-orders
           docker run --rm --entrypoint python3 odp/batch-orders:ci -m py_compile /opt/odp/jobs/batch-orders/batch_orders.py
 
+  airflow-orchestration-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Airflow orchestration image
+        run: |
+          docker build \
+            --build-arg AIRFLOW_IMAGE=apache/airflow:3.3.1 \
+            --build-arg AIRFLOW_VERSION=3.3.1 \
+            --build-arg KUBERNETES_PROVIDER_VERSION=10.21.1 \
+            -f platform/orchestration/airflow/Dockerfile \
+            -t odp/airflow-orchestrator:ci \
+            .
+      - name: Validate provider and DAG import
+        run: |
+          docker run --rm --entrypoint /bin/bash odp/airflow-orchestrator:ci -ec '
+            pip check
+            python -m py_compile /opt/airflow/dags/batch_orders_snapshot.py
+            python - <<"PY"
+          import runpy
+          from airflow.providers.cncf.kubernetes.operators.job import KubernetesJobOperator
+          namespace = runpy.run_path("/opt/airflow/dags/batch_orders_snapshot.py")
+          assert namespace["dag"].dag_id == "batch_orders_snapshot"
+          assert isinstance(namespace["run_batch_orders"], KubernetesJobOperator)
+          PY
+            test -f /opt/airflow/job-templates/batch-orders.yaml
+          '
+
   standalone-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -69,6 +98,13 @@ jobs:
         run: kubectl apply --dry-run=server -k deployment/kubernetes/standalone >/dev/null
       - name: Validate golden-path job against Kubernetes API
         run: kubectl apply --dry-run=server -f examples/golden-paths/batch-orders/kubernetes/job.yaml >/dev/null
+      - name: Validate Airflow RBAC boundary
+        run: |
+          kubectl apply -k deployment/kubernetes/standalone >/dev/null
+          kubectl auth can-i create jobs.batch -n odp-data --as=system:serviceaccount:odp-system:airflow-orchestrator | grep -qx yes
+          kubectl auth can-i get pods/log -n odp-data --as=system:serviceaccount:odp-system:airflow-orchestrator | grep -qx yes
+          kubectl auth can-i get secrets -n odp-data --as=system:serviceaccount:odp-system:airflow-orchestrator | grep -qx no
+          kubectl auth can-i update deployments.apps -n odp-data --as=system:serviceaccount:odp-system:airflow-orchestrator | grep -qx no
       - name: Validate baseline policies
         run: |
           kubectl apply -f deployment/kubernetes/base/default-deny.yaml

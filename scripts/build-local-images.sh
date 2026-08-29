@@ -4,6 +4,7 @@ set -euo pipefail
 cluster_name="odp-local"
 runtime_image="odp/spark-iceberg:4.1.3-iceberg1.11.0"
 batch_image="odp/batch-orders:0.1.0"
+airflow_image="odp/airflow-orchestrator:3.3.1-k8s10.21.1"
 pgjdbc_sha256="6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93"
 
 echo "Building $runtime_image"
@@ -22,7 +23,16 @@ docker build \
   -t "$batch_image" \
   examples/golden-paths/batch-orders
 
+echo "Building $airflow_image"
+docker build \
+  --build-arg AIRFLOW_IMAGE=apache/airflow:3.3.1 \
+  --build-arg AIRFLOW_VERSION=3.3.1 \
+  --build-arg KUBERNETES_PROVIDER_VERSION=10.21.1 \
+  -f platform/orchestration/airflow/Dockerfile \
+  -t "$airflow_image" \
+  .
+
 if kind get clusters | grep -qx "$cluster_name"; then
   echo "Loading reference images into Kind cluster $cluster_name"
-  kind load docker-image --name "$cluster_name" "$runtime_image" "$batch_image"
+  kind load docker-image --name "$cluster_name" "$runtime_image" "$batch_image" "$airflow_image"
 fi

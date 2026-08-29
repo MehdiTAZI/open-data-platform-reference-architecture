@@ -67,8 +67,14 @@ components:
   airflow:
     version: "3.3.1"
     image: "apache/airflow:3.3.1"
+    standaloneImage: "odp/airflow-orchestrator:3.3.1-k8s10.21.1"
     scope: orchestration
     source: "https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html"
+  airflowKubernetesProvider:
+    version: "10.21.1"
+    package: "apache-airflow-providers-cncf-kubernetes==10.21.1"
+    scope: kubernetes-job-orchestration
+    source: "https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/stable/index.html"
   opentelemetryCollector:
     version: "0.159.0"
     image: "otel/opentelemetry-collector-contrib:0.159.0"
