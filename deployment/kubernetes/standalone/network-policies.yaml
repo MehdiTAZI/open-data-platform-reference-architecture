@@ -1,0 +1,162 @@
+# Standalone-specific allow rules layered on top of the base default-deny posture.
+# Production deployments must replace broad intra-plane rules with workload-specific flows.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-plane-internal
+  namespace: odp-data
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-control-plane-internal
+  namespace: odp-system
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-data
+  namespace: odp-data
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-system
+  namespace: odp-system
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-system-to-postgres
+  namespace: odp-data
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-system
+      ports:
+        - {protocol: TCP, port: 5432}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-system-egress-postgres
+  namespace: odp-system
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - {protocol: TCP, port: 5432}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-to-polaris
+  namespace: odp-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: polaris
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-data
+      ports:
+        - {protocol: TCP, port: 8181}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-egress-polaris
+  namespace: odp-data
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: polaris
+      ports:
+        - {protocol: TCP, port: 8181}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-kubernetes-api
+  namespace: odp-data
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spark-client
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - {protocol: TCP, port: 443}
+  policyTypes: [Egress]
