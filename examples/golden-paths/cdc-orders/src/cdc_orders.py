@@ -162,13 +162,28 @@ def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
         F.current_timestamp().alias("updated_at"),
     )
 
+    invalid_non_delete = current.filter(
+        (F.col("op") != "d")
+        & (
+            F.col("customer_id").isNull()
+            | F.col("order_ts").isNull()
+            | F.col("status").isNull()
+            | F.col("amount").isNull()
+            | (F.col("amount") < 0)
+            | F.col("country").isNull()
+        )
+    )
+    if invalid_non_delete.limit(1).count() > 0:
+        raise ValueError(f"CDC batch {batch_id} violates the Orders current-state contract")
+
     latest_window = Window.partitionBy("order_id").orderBy(
         F.col("source_lsn").desc(), F.col("kafka_partition").desc(), F.col("kafka_offset").desc()
     )
     latest = current.withColumn("_rank", F.row_number().over(latest_window)).filter("_rank = 1").drop("_rank")
     latest.createOrReplaceTempView("incoming_cdc_current")
 
-    newer = "(s.source_lsn > t.source_lsn OR (s.source_lsn = t.source_lsn AND s.kafka_offset >= t.kafka_offset))"
+    # Equal LSN+offset is the same transport event and must be a physical no-op on replay.
+    newer = "(s.source_lsn > t.source_lsn OR (s.source_lsn = t.source_lsn AND s.kafka_offset > t.kafka_offset))"
     spark.sql(
         f"""
         MERGE INTO polaris.silver.orders_cdc t
