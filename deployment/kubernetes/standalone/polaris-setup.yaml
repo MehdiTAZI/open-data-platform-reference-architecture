@@ -31,7 +31,8 @@ data:
                 "scope": "PRINCIPAL_ROLE:ALL",
             }).encode()
             token = json.load(request("POST", "/api/catalog/v1/oauth/tokens", token_body, {
-                "Content-Type": "application/x-www-form-urlencoded"
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Polaris-Realm": realm,
             }))["access_token"]
             break
         except Exception:

@@ -74,6 +74,7 @@ spec:
               valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
             - name: QUARKUS_DATASOURCE_PASSWORD
               valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: password}}
+            - {name: POLARIS_REALM_CONTEXT_REALMS, value: "odp"}
             - {name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER, value: "true"}
             - {name: AWS_REGION, value: garage}
             - name: AWS_ACCESS_KEY_ID
