@@ -68,6 +68,9 @@ components:
   sparkKafkaConnector:
     version: "4.1.3"
     artifact: "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.3"
+    kafkaClientsVersion: "3.9.2"
+    lz4Artifact: "at.yawk.lz4:lz4-java:1.10.3"
+    securityReason: "Override Spark's vulnerable kafka-clients 3.9.1 and archived org.lz4 1.8.0 transitive dependencies with fixed compatible releases."
     scope: structured-streaming-kafka
     source: "https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.13/4.1.3/"
   trino:
