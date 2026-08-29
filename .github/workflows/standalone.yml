@@ -11,7 +11,7 @@ permissions:
 jobs:
   full-standalone:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: helm/kind-action@v1
@@ -25,8 +25,10 @@ jobs:
         run: |
           make validate
           ./scripts/local-up.sh
-      - name: Smoke test
+      - name: Platform smoke test
         run: make smoke-test
+      - name: Batch golden path
+        run: make batch-golden-path-test
       - name: Diagnostics on failure
         if: failure()
         run: |
@@ -38,3 +40,4 @@ jobs:
           kubectl -n odp-system logs deployment/polaris --tail=200 || true
           kubectl -n odp-data logs deployment/trino --tail=200 || true
           kubectl -n odp-system logs deployment/airflow --tail=200 || true
+          kubectl -n odp-data logs job/batch-orders --all-containers=true --tail=300 || true

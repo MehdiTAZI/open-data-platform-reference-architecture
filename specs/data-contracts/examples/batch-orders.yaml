@@ -1,0 +1,16 @@
+apiVersion: odp/v1alpha1
+kind: DataContract
+metadata:
+  name: batch-orders
+  owner: commerce-data
+spec:
+  schema:
+    - {name: order_id, type: long, nullable: false, classification: internal}
+    - {name: customer_id, type: string, nullable: false, classification: confidential}
+    - {name: order_ts, type: timestamp, nullable: false, classification: internal}
+    - {name: status, type: string, nullable: false, classification: internal}
+    - {name: amount, type: "decimal(18,2)", nullable: false, classification: confidential}
+    - {name: country, type: string, nullable: false, classification: internal}
+  quality:
+    uniqueness: [order_id]
+    freshness: 24h
