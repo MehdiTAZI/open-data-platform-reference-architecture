@@ -39,16 +39,20 @@ components:
     image: "apache/polaris:1.7.0"
     adminImage: "apache/polaris-admin-tool:1.7.0"
     scope: iceberg-rest-catalog
-    source: "https://polaris.apache.org/downloads/"
+    source: "https://polaris.apache.org/releases/1.7.0/"
   iceberg:
     version: "1.11.0"
+    sparkRuntimeArtifact: "org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0"
+    awsBundleArtifact: "org.apache.iceberg:iceberg-aws-bundle:1.11.0"
     scope: table-format
     source: "https://iceberg.apache.org/releases/"
   spark:
-    version: "4.2.0"
-    image: "apache/spark:4.2.0-python3"
+    version: "4.1.3"
+    image: "apache/spark:4.1.3-python3"
+    standaloneImage: "odp/spark-iceberg:4.1.3-iceberg1.11.0"
     scope: batch-and-stream-processing
-    source: "https://spark.apache.org/downloads.html"
+    compatibilityReason: "Iceberg 1.11.0 officially maintains Spark 4.1 integration; Spark 4.2 is not yet listed as supported."
+    source: "https://spark.apache.org/downloads"
   trino:
     version: "483"
     image: "trinodb/trino:483"
@@ -62,16 +66,16 @@ components:
   opentelemetryCollector:
     version: "0.159.0"
     image: "otel/opentelemetry-collector-contrib:0.159.0"
-    scope: telemetry-ingestion
-    source: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.159.0"
+    scope: telemetry-ingress
+    source: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases"
   prometheus:
     version: "3.13.2"
     image: "prom/prometheus:v3.13.2"
+    supportLine: "3.13 LTS"
     scope: standalone-metrics-backend
-    rationale: "3.13 is the supported 2026 LTS line"
     source: "https://prometheus.io/docs/introduction/release-cycle/"
   grafana:
     version: "13.1.3"
     image: "grafana/grafana:13.1.3"
     scope: standalone-observability-ui
-    source: "https://grafana.com/grafana/download?edition=oss"
+    source: "https://grafana.com/grafana/download"

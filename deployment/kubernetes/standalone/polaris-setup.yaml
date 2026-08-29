@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: polaris-catalog-setup
+  namespace: odp-system
+data:
+  setup.py: |
+    import json
+    import os
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    base = "http://polaris.odp-system.svc.cluster.local:8181"
+    realm = "odp"
+    client_id = os.environ["CLIENT_ID"]
+    client_secret = os.environ["CLIENT_SECRET"]
+
+    def request(method, path, data=None, headers=None):
+        body = None if data is None else (data if isinstance(data, bytes) else json.dumps(data).encode())
+        req = urllib.request.Request(base + path, data=body, method=method, headers=headers or {})
+        return urllib.request.urlopen(req, timeout=10)
+
+    for _ in range(90):
+        try:
+            token_body = urllib.parse.urlencode({
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": "PRINCIPAL_ROLE:ALL",
+            }).encode()
+            token = json.load(request("POST", "/api/catalog/v1/oauth/tokens", token_body, {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }))["access_token"]
+            break
+        except Exception:
+            time.sleep(2)
+    else:
+        raise SystemExit("Polaris token endpoint did not become ready")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Polaris-Realm": realm,
+    }
+
+    try:
+        request("GET", "/api/management/v1/catalogs/odp", headers=headers)
+        print("Catalog odp already exists")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+        payload = {
+            "catalog": {
+                "name": "odp",
+                "type": "INTERNAL",
+                "readOnly": False,
+                "properties": {"default-base-location": "s3://warehouse/iceberg"},
+                "storageConfigInfo": {
+                    "storageType": "S3",
+                    "allowedLocations": ["s3://warehouse"],
+                    "endpoint": "http://garage.odp-data.svc.cluster.local:3900",
+                    "endpointInternal": "http://garage.odp-data.svc.cluster.local:3900",
+                    "pathStyleAccess": True,
+                    "region": "garage"
+                }
+            }
+        }
+        request("POST", "/api/management/v1/catalogs", payload, headers)
+        print("Created Polaris catalog odp")
+
+    config = json.load(request("GET", "/api/catalog/v1/config?warehouse=odp", headers={
+        "Authorization": f"Bearer {token}", "Polaris-Realm": realm
+    }))
+    print("Iceberg REST catalog configuration validated:", sorted(config.keys()))
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: polaris-catalog-setup
+  namespace: odp-system
+  labels:
+    app.kubernetes.io/name: polaris-catalog-setup
+    app.kubernetes.io/part-of: odp
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: polaris-catalog-setup
+        app.kubernetes.io/part-of: odp
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: setup
+          image: python:3.13.7-alpine3.22
+          command: ["python", "/opt/setup/setup.py"]
+          env:
+            - name: CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: polaris-root-credentials, key: client-id}
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: polaris-root-credentials, key: client-secret}
+          resources:
+            requests: {cpu: 25m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: setup, mountPath: /opt/setup, readOnly: true}
+      volumes:
+        - name: setup
+          configMap: {name: polaris-catalog-setup}
