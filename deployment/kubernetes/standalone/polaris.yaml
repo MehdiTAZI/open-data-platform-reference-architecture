@@ -24,10 +24,8 @@ spec:
             - until pg_isready -h postgres.odp-data.svc.cluster.local -p 5432 -U "$DB_USER" -d polaris; do sleep 2; done
           env:
             - name: DB_USER
-              valueFrom:
-                secretKeyRef: {name: polaris-db-credentials, key: username}
-          securityContext:
-            allowPrivilegeEscalation: false
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
+          securityContext: {allowPrivilegeEscalation: false}
       containers:
         - name: bootstrap
           image: apache/polaris-admin-tool:1.7.0
@@ -80,9 +78,9 @@ spec:
             - {name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER, value: "false"}
             - {name: AWS_REGION, value: "garage"}
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: garage-credentials, key: access-key}}
+              valueFrom: {secretKeyRef: {name: polaris-storage-credentials, key: access-key}}
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: garage-credentials, key: secret-key}}
+              valueFrom: {secretKeyRef: {name: polaris-storage-credentials, key: secret-key}}
           ports:
             - {name: api, containerPort: 8181}
             - {name: management, containerPort: 8182}
@@ -90,13 +88,8 @@ spec:
             httpGet: {path: /q/health/started, port: management}
             failureThreshold: 60
             periodSeconds: 2
-          readinessProbe:
-            httpGet: {path: /q/health/ready, port: management}
-            periodSeconds: 5
-          livenessProbe:
-            httpGet: {path: /q/health/live, port: management}
-            initialDelaySeconds: 30
-            periodSeconds: 10
+          readinessProbe: {httpGet: {path: /q/health/ready, port: management}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /q/health/live, port: management}, initialDelaySeconds: 30, periodSeconds: 10}
           resources:
             requests: {cpu: 250m, memory: 512Mi}
             limits: {cpu: "2", memory: 1536Mi}

@@ -37,11 +37,19 @@ ensure_grafana_secret() {
   printf '%s' "$password"
 }
 
-sync_data_plane_polaris_secret() {
-  local root_secret="$1"
+sync_cross_plane_secrets() {
+  local polaris_root_secret="$1"
+  local garage_access="$2"
+  local garage_secret="$3"
+
   kubectl -n odp-data create secret generic trino-polaris-credentials \
     --from-literal=client-id=root \
-    --from-literal=client-secret="$root_secret" \
+    --from-literal=client-secret="$polaris_root_secret" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+  kubectl -n odp-system create secret generic polaris-storage-credentials \
+    --from-literal=access-key="$garage_access" \
+    --from-literal=secret-key="$garage_secret" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 }
 
@@ -82,7 +90,7 @@ if kubectl -n odp-data get secret postgres-credentials >/dev/null 2>&1 \
   garage_access="$(secret_value odp-data garage-credentials access-key)"
   garage_secret="$(secret_value odp-data garage-credentials secret-key)"
   polaris_root_secret="$(secret_value odp-system polaris-root-credentials client-secret)"
-  sync_data_plane_polaris_secret "$polaris_root_secret"
+  sync_cross_plane_secrets "$polaris_root_secret" "$garage_access" "$garage_secret"
   write_local_credentials "$garage_access" "$garage_secret" "$polaris_root_secret" "$postgres_user" "$postgres_password" "$grafana_password"
   echo "Reused existing standalone credentials and refreshed .local/credentials.env"
   exit 0
@@ -115,6 +123,6 @@ kubectl -n odp-system create secret generic polaris-root-credentials \
   --from-literal=client-id=root --from-literal=client-secret="$polaris_root_secret" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-sync_data_plane_polaris_secret "$polaris_root_secret"
+sync_cross_plane_secrets "$polaris_root_secret" "$garage_access" "$garage_secret"
 write_local_credentials "$garage_access" "$garage_secret" "$polaris_root_secret" "$postgres_user" "$postgres_password" "$grafana_password"
 echo "Generated new ephemeral standalone credentials in .local/credentials.env"
