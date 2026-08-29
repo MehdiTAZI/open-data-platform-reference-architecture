@@ -13,34 +13,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.1
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck
-      - name: Shell validation
-        run: shellcheck scripts/*.sh
-      - name: Validate JSON schemas
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          for p in Path('specs').rglob('*.json'):
-              json.loads(p.read_text())
-              print('OK', p)
-          PY
-      - name: Validate Kubernetes YAML client-side
-        run: |
-          kubectl apply --dry-run=client -f deployment/kubernetes/base/namespaces.yaml
-          kubectl apply --dry-run=client -f deployment/kubernetes/base/default-deny.yaml
+          sudo apt-get install -y shellcheck python3-yaml
+      - name: Validate repository
+        run: make validate
 
-  standalone-smoke:
+  standalone-contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: helm/kind-action@v1
         with:
+          version: v0.31.0
           config: infrastructure/environments/local/kind-config.yaml
           cluster_name: odp-local
-      - run: kubectl apply -f deployment/kubernetes/base/namespaces.yaml
-      - run: kubectl apply -f deployment/kubernetes/base/default-deny.yaml
-      - run: ./scripts/smoke-test.sh
+      - name: Validate baseline deployment contracts
+        run: |
+          kubectl apply --dry-run=server -k deployment/kubernetes/standalone >/dev/null
+          kubectl apply -f deployment/kubernetes/base/namespaces.yaml
+          kubectl apply -f deployment/kubernetes/base/default-deny.yaml
+          kubectl get namespace odp-system odp-data odp-observability

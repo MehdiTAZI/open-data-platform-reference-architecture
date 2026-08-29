@@ -1,0 +1,61 @@
+schemaVersion: 1
+updated: "2026-08-29"
+policy:
+  standalone:
+    pinTags: true
+    digestLockRequired: false
+  production:
+    pinTags: true
+    digestLockRequired: true
+components:
+  kubernetes:
+    version: "1.36.1"
+    image: "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
+    scope: standalone-runtime
+    source: "https://kubernetes.io/releases/"
+  kind:
+    version: "0.31.0"
+    scope: standalone-bootstrap
+    source: "https://kind.sigs.k8s.io/"
+  postgres:
+    version: "18.6"
+    image: "postgres:18.6"
+    scope: standalone-metadata
+    productionReplacement: "managed PostgreSQL or HA PostgreSQL"
+    source: "https://www.postgresql.org/docs/release/18.6/"
+  garage:
+    version: "2.3.0"
+    image: "dxflrs/garage:v2.3.0"
+    scope: standalone-object-storage
+    productionReplacement: "cloud-native object storage or production-supported S3-compatible storage"
+    source: "https://garagehq.deuxfleurs.fr/"
+  kafka:
+    version: "4.3.1"
+    image: "apache/kafka:4.3.1"
+    scope: event-streaming
+    source: "https://kafka.apache.org/community/downloads/"
+  polaris:
+    version: "1.7.0"
+    image: "apache/polaris:1.7.0"
+    adminImage: "apache/polaris-admin-tool:1.7.0"
+    scope: iceberg-rest-catalog
+    source: "https://polaris.apache.org/downloads/"
+  iceberg:
+    version: "1.11.0"
+    scope: table-format
+    source: "https://iceberg.apache.org/releases/"
+  spark:
+    version: "4.2.0"
+    image: "apache/spark:4.2.0-python3"
+    scope: batch-and-stream-processing
+    source: "https://spark.apache.org/downloads.html"
+  trino:
+    version: "483"
+    image: "trinodb/trino:483"
+    scope: analytical-serving
+    source: "https://trino.io/docs/current/release.html"
+  airflow:
+    version: "3.3.1"
+    image: "apache/airflow:3.3.1"
+    scope: orchestration
+    source: "https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html"
