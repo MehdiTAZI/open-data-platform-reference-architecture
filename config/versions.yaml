@@ -24,10 +24,11 @@ components:
     productionReplacement: "managed PostgreSQL or HA PostgreSQL"
     source: "https://www.postgresql.org/docs/release/18.6/"
   postgresJdbc:
-    version: "42.7.7"
-    artifact: "org.postgresql:postgresql:42.7.7"
+    version: "42.7.13"
+    artifact: "org.postgresql:postgresql:42.7.13"
+    sha256: "6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93"
     scope: jdbc-ingestion
-    source: "https://jdbc.postgresql.org/"
+    source: "https://github.com/pgjdbc/pgjdbc/releases/tag/REL42.7.13"
   garage:
     version: "2.3.0"
     image: "dxflrs/garage:v2.3.0"

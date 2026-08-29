@@ -3,10 +3,12 @@ FROM ${SPARK_IMAGE}
 
 USER root
 ARG ICEBERG_VERSION=1.11.0
-ARG POSTGRES_JDBC_VERSION=42.7.7
+ARG POSTGRES_JDBC_VERSION=42.7.13
+ARG POSTGRES_JDBC_SHA256=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
 ARG SCALA_BINARY_VERSION=2.13
 ARG SPARK_MINOR=4.1
 ARG MAVEN_BASE=https://repo1.maven.org/maven2
+ARG PGJDBC_RELEASE_BASE=https://github.com/pgjdbc/pgjdbc/releases/download
 
 RUN set -eux; \
     runtime="iceberg-spark-runtime-${SPARK_MINOR}_${SCALA_BINARY_VERSION}"; \
@@ -19,9 +21,8 @@ RUN set -eux; \
     curl -fsSL "${MAVEN_BASE}/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_VERSION}/${aws_jar}" -o "/opt/spark/jars/${aws_jar}"; \
     curl -fsSL "${MAVEN_BASE}/org/apache/iceberg/iceberg-aws-bundle/${ICEBERG_VERSION}/${aws_jar}.sha512" -o /tmp/aws.sha512; \
     printf '%s  %s\n' "$(cat /tmp/aws.sha512)" "/opt/spark/jars/${aws_jar}" | sha512sum -c -; \
-    curl -fsSL "${MAVEN_BASE}/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/${pg_jar}" -o "/opt/spark/jars/${pg_jar}"; \
-    curl -fsSL "${MAVEN_BASE}/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/${pg_jar}.sha512" -o /tmp/postgres.sha512; \
-    printf '%s  %s\n' "$(cat /tmp/postgres.sha512)" "/opt/spark/jars/${pg_jar}" | sha512sum -c -; \
+    curl -fsSL "${PGJDBC_RELEASE_BASE}/REL${POSTGRES_JDBC_VERSION}/${pg_jar}" -o "/opt/spark/jars/${pg_jar}"; \
+    printf '%s  %s\n' "${POSTGRES_JDBC_SHA256}" "/opt/spark/jars/${pg_jar}" | sha256sum -c -; \
     rm -f /tmp/*.sha512
 
 USER 185

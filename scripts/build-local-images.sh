@@ -4,13 +4,15 @@ set -euo pipefail
 cluster_name="odp-local"
 runtime_image="odp/spark-iceberg:4.1.3-iceberg1.11.0"
 batch_image="odp/batch-orders:0.1.0"
+pgjdbc_sha256="6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93"
 
 echo "Building $runtime_image"
 docker build \
   --pull \
   --build-arg SPARK_IMAGE=apache/spark:4.1.3-python3 \
   --build-arg ICEBERG_VERSION=1.11.0 \
-  --build-arg POSTGRES_JDBC_VERSION=42.7.7 \
+  --build-arg POSTGRES_JDBC_VERSION=42.7.13 \
+  --build-arg POSTGRES_JDBC_SHA256="$pgjdbc_sha256" \
   -t "$runtime_image" \
   platform/processing/spark
 
