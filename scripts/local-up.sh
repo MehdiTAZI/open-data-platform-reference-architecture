@@ -4,6 +4,50 @@ set -euo pipefail
 cluster_name="odp-local"
 config="infrastructure/environments/local/kind-config.yaml"
 
+diagnose_deployment() {
+  local namespace="$1"
+  local name="$2"
+  echo "::error::Deployment ${namespace}/${name} failed readiness" >&2
+  kubectl -n "$namespace" get "deployment/$name" -o wide || true
+  kubectl -n "$namespace" describe "deployment/$name" || true
+  kubectl -n "$namespace" get pods -o wide || true
+  kubectl -n "$namespace" logs "deployment/$name" --all-containers=true --tail=300 || true
+  kubectl -n "$namespace" get events --sort-by=.lastTimestamp | tail -80 || true
+}
+
+diagnose_job() {
+  local namespace="$1"
+  local name="$2"
+  echo "::error::Job ${namespace}/${name} did not complete" >&2
+  kubectl -n "$namespace" get "job/$name" -o wide || true
+  kubectl -n "$namespace" describe "job/$name" || true
+  kubectl -n "$namespace" get pods -o wide || true
+  kubectl -n "$namespace" logs "job/$name" --all-containers=true --tail=300 || true
+  kubectl -n "$namespace" get events --sort-by=.lastTimestamp | tail -80 || true
+}
+
+wait_deployment() {
+  local namespace="$1"
+  local name="$2"
+  local timeout="$3"
+  echo "Waiting for deployment ${namespace}/${name}..."
+  if ! kubectl -n "$namespace" rollout status "deployment/$name" --timeout="$timeout"; then
+    diagnose_deployment "$namespace" "$name"
+    return 1
+  fi
+}
+
+wait_job() {
+  local namespace="$1"
+  local name="$2"
+  local timeout="$3"
+  echo "Waiting for job ${namespace}/${name}..."
+  if ! kubectl -n "$namespace" wait --for=condition=complete "job/$name" --timeout="$timeout"; then
+    diagnose_job "$namespace" "$name"
+    return 1
+  fi
+}
+
 if kind get clusters | grep -qx "$cluster_name"; then
   echo "Kind cluster $cluster_name already exists"
 else
@@ -23,19 +67,19 @@ kubectl -n odp-system delete job polaris-bootstrap polaris-catalog-setup --ignor
 kubectl apply -k deployment/kubernetes/standalone
 
 echo "Waiting for standalone services..."
-kubectl -n odp-data rollout status deployment/postgres --timeout=180s
-kubectl -n odp-data rollout status deployment/garage --timeout=180s
-kubectl -n odp-data rollout status deployment/kafka --timeout=240s
-kubectl -n odp-data rollout status deployment/debezium-connect --timeout=300s
-kubectl -n odp-system wait --for=condition=complete job/polaris-bootstrap --timeout=240s
-kubectl -n odp-system rollout status deployment/polaris --timeout=300s
-kubectl -n odp-system wait --for=condition=complete job/polaris-catalog-setup --timeout=240s
-kubectl -n odp-data rollout status deployment/trino --timeout=300s
-kubectl -n odp-data rollout status deployment/spark-client --timeout=180s
-kubectl -n odp-system rollout status deployment/airflow --timeout=420s
-kubectl -n odp-observability rollout status deployment/otel-collector --timeout=180s
-kubectl -n odp-observability rollout status deployment/prometheus --timeout=180s
-kubectl -n odp-observability rollout status deployment/grafana --timeout=240s
+wait_deployment odp-data postgres 180s
+wait_deployment odp-data garage 180s
+wait_deployment odp-data kafka 240s
+wait_deployment odp-data debezium-connect 300s
+wait_job odp-system polaris-bootstrap 240s
+wait_deployment odp-system polaris 300s
+wait_job odp-system polaris-catalog-setup 240s
+wait_deployment odp-data trino 300s
+wait_deployment odp-data spark-client 180s
+wait_deployment odp-system airflow 420s
+wait_deployment odp-observability otel-collector 180s
+wait_deployment odp-observability prometheus 180s
+wait_deployment odp-observability grafana 240s
 
 echo
 echo "Standalone platform is ready."

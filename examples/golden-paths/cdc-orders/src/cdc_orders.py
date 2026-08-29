@@ -6,11 +6,25 @@ from pyspark.sql.types import LongType, StringType, StructField, StructType
 from pyspark.sql.window import Window
 
 
+ALLOWED_OPERATIONS = ("c", "u", "d", "r")
+ALLOWED_STATUSES = ("COMPLETED", "CANCELLED", "PENDING")
+
+
 def required(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise RuntimeError(f"Required environment variable is missing: {name}")
     return value
+
+
+def assert_no_violations(df, condition, message: str) -> None:
+    if df.filter(condition).limit(1).count() > 0:
+        raise ValueError(message)
+
+
+def assert_unique(df, keys, message: str) -> None:
+    if df.groupBy(*keys).count().filter(F.col("count") > 1).limit(1).count() > 0:
+        raise ValueError(message)
 
 
 def build_spark() -> SparkSession:
@@ -50,12 +64,7 @@ order_schema = StructType(
     ]
 )
 
-source_schema = StructType(
-    [
-        StructField("lsn", LongType()),
-        StructField("ts_ms", LongType()),
-    ]
-)
+source_schema = StructType([StructField("lsn", LongType()), StructField("ts_ms", LongType())])
 
 envelope_schema = StructType(
     [
@@ -107,14 +116,100 @@ def ensure_tables(spark: SparkSession) -> None:
     )
 
 
+def validate_bronze_input(decoded, batch_id: int) -> None:
+    assert_no_violations(
+        decoded,
+        F.col("event_value").isNull()
+        | F.col("event_key").isNull()
+        | F.col("payload").isNull()
+        | F.col("payload.source").isNull()
+        | F.col("payload.op").isNull()
+        | ~F.col("payload.op").isin(*ALLOWED_OPERATIONS)
+        | F.col("kafka_partition").isNull()
+        | (F.col("kafka_partition") < 0)
+        | F.col("kafka_offset").isNull()
+        | (F.col("kafka_offset") < 0),
+        f"CDC batch {batch_id} violates the Bronze transport/event contract",
+    )
+
+
+def validate_silver(silver, batch_id: int) -> None:
+    assert_unique(silver, ["order_id"], f"CDC batch {batch_id} produced duplicate Silver order_id values")
+    assert_no_violations(
+        silver,
+        F.col("order_id").isNull()
+        | F.col("customer_id").isNull()
+        | (F.length(F.trim(F.col("customer_id"))) == 0)
+        | F.col("order_ts").isNull()
+        | F.col("status").isNull()
+        | ~F.col("status").isin(*ALLOWED_STATUSES)
+        | F.col("amount").isNull()
+        | (F.col("amount") < 0)
+        | F.col("country").isNull()
+        | ~F.col("country").rlike("^[A-Z]{2}$")
+        | F.col("source_lsn").isNull()
+        | (F.col("source_lsn") < -1)
+        | F.col("kafka_partition").isNull()
+        | (F.col("kafka_partition") < 0)
+        | F.col("kafka_offset").isNull()
+        | (F.col("kafka_offset") < 0),
+        f"CDC batch {batch_id} violates the Silver current-state contract",
+    )
+
+
+def validate_gold(gold, batch_id: int) -> None:
+    assert_unique(gold, ["order_date", "country"], f"CDC batch {batch_id} produced duplicate Gold grain rows")
+    assert_no_violations(
+        gold,
+        F.col("order_date").isNull()
+        | F.col("country").isNull()
+        | (F.col("order_count") <= 0)
+        | (F.col("completed_order_count") < 0)
+        | (F.col("completed_order_count") > F.col("order_count"))
+        | F.col("gross_amount").isNull()
+        | (F.col("gross_amount") < 0)
+        | F.col("completed_amount").isNull()
+        | (F.col("completed_amount") < 0)
+        | (F.col("completed_amount") > F.col("gross_amount")),
+        f"CDC batch {batch_id} violates the Gold serving contract",
+    )
+
+
+def validate_silver_gold_reconciliation(silver, gold, batch_id: int) -> None:
+    zero_decimal = F.lit(0).cast("decimal(18,2)")
+    silver_metrics = silver.agg(
+        F.count("*").cast("long").alias("order_count"),
+        F.coalesce(F.sum("amount"), zero_decimal).cast("decimal(18,2)").alias("gross_amount"),
+        F.sum(F.when(F.col("status") == "COMPLETED", F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("completed_order_count"),
+        F.coalesce(
+            F.sum(F.when(F.col("status") == "COMPLETED", F.col("amount")).otherwise(zero_decimal)),
+            zero_decimal,
+        )
+        .cast("decimal(18,2)")
+        .alias("completed_amount"),
+    ).first()
+    gold_metrics = gold.agg(
+        F.coalesce(F.sum("order_count"), F.lit(0)).cast("long").alias("order_count"),
+        F.coalesce(F.sum("gross_amount"), zero_decimal).cast("decimal(18,2)").alias("gross_amount"),
+        F.coalesce(F.sum("completed_order_count"), F.lit(0)).cast("long").alias("completed_order_count"),
+        F.coalesce(F.sum("completed_amount"), zero_decimal).cast("decimal(18,2)").alias("completed_amount"),
+    ).first()
+    metric_names = ("order_count", "gross_amount", "completed_order_count", "completed_amount")
+    mismatches = [name for name in metric_names if silver_metrics[name] != gold_metrics[name]]
+    if mismatches:
+        raise ValueError(
+            f"CDC batch {batch_id} failed Silver->Gold reconciliation for: {', '.join(mismatches)}"
+        )
+
+
 def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
     if batch_df.rdd.isEmpty():
         return
 
     decoded = batch_df.withColumn("payload", F.from_json("event_value", envelope_schema))
-    invalid = decoded.filter(F.col("payload.op").isNull() | ~F.col("payload.op").isin("c", "u", "d", "r"))
-    if invalid.limit(1).count() > 0:
-        raise ValueError(f"CDC batch {batch_id} contains an unsupported or malformed operation")
+    validate_bronze_input(decoded, batch_id)
 
     enriched = (
         decoded.withColumn("order_id", F.coalesce("payload.after.order_id", "payload.before.order_id"))
@@ -122,9 +217,13 @@ def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
         .withColumn("source_ts_ms", F.col("payload.source.ts_ms"))
         .withColumn("op", F.col("payload.op"))
     )
-    if enriched.filter(F.col("order_id").isNull()).limit(1).count() > 0:
-        raise ValueError(f"CDC batch {batch_id} contains an event without order_id")
+    assert_no_violations(
+        enriched,
+        F.col("order_id").isNull(),
+        f"CDC batch {batch_id} contains an event without order_id",
+    )
 
+    # Bronze is the replay/audit ledger: raw payload plus source/transport metadata only.
     bronze = enriched.select(
         F.col("kafka_partition"),
         F.col("kafka_offset"),
@@ -147,6 +246,7 @@ def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
         """
     )
 
+    # Silver is the typed, normalized and deduplicated current business state.
     current = enriched.select(
         F.col("order_id"),
         F.col("op"),
@@ -161,20 +261,22 @@ def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
         F.col("kafka_offset"),
         F.current_timestamp().alias("updated_at"),
     )
-
-    invalid_non_delete = current.filter(
+    assert_no_violations(
+        current,
         (F.col("op") != "d")
         & (
             F.col("customer_id").isNull()
+            | (F.length(F.trim(F.col("customer_id"))) == 0)
             | F.col("order_ts").isNull()
             | F.col("status").isNull()
+            | ~F.col("status").isin(*ALLOWED_STATUSES)
             | F.col("amount").isNull()
             | (F.col("amount") < 0)
             | F.col("country").isNull()
-        )
+            | ~F.col("country").rlike("^[A-Z]{2}$")
+        ),
+        f"CDC batch {batch_id} violates the Orders contract before Silver promotion",
     )
-    if invalid_non_delete.limit(1).count() > 0:
-        raise ValueError(f"CDC batch {batch_id} violates the Orders current-state contract")
 
     latest_window = Window.partitionBy("order_id").orderBy(
         F.col("source_lsn").desc(), F.col("kafka_partition").desc(), F.col("kafka_offset").desc()
@@ -212,19 +314,34 @@ def process_batch(spark: SparkSession, batch_df, batch_id: int) -> None:
     )
 
     silver = spark.table("polaris.silver.orders_cdc")
+    validate_silver(silver, batch_id)
+
+    # Gold owns a declared business grain and derives only from validated Silver.
     gold = (
         silver.withColumn("order_date", F.to_date("order_ts"))
         .groupBy("order_date", "country")
         .agg(
-            F.countDistinct("order_id").cast("long").alias("order_count"),
+            F.count("*").cast("long").alias("order_count"),
             F.sum("amount").cast("decimal(18,2)").alias("gross_amount"),
-            F.sum(F.when(F.col("status") == "COMPLETED", F.col("amount")).otherwise(F.lit(0)))
+            F.sum(F.when(F.col("status") == "COMPLETED", F.lit(1)).otherwise(F.lit(0)))
+            .cast("long")
+            .alias("completed_order_count"),
+            F.sum(
+                F.when(F.col("status") == "COMPLETED", F.col("amount"))
+                .otherwise(F.lit(0).cast("decimal(18,2)"))
+            )
             .cast("decimal(18,2)")
             .alias("completed_amount"),
         )
     )
+    validate_gold(gold, batch_id)
+    validate_silver_gold_reconciliation(silver, gold, batch_id)
     gold.writeTo("polaris.gold.daily_order_summary_cdc").using("iceberg").createOrReplace()
-    print(f"CDC_BATCH_SUCCESS batch_id={batch_id} events={bronze.count()} current_rows={silver.count()}")
+    print(
+        "CDC_BATCH_SUCCESS "
+        f"batch_id={batch_id} bronze_events={bronze.count()} silver_rows={silver.count()} "
+        f"gold_rows={gold.count()} quality_gates=passed"
+    )
 
 
 def main() -> None:

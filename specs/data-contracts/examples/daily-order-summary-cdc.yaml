@@ -1,0 +1,16 @@
+apiVersion: odp/v1alpha1
+kind: DataContract
+metadata:
+  name: daily-order-summary-cdc
+  owner: commerce-data
+spec:
+  schema:
+    - {name: order_date, type: date, nullable: false, classification: internal}
+    - {name: country, type: string, nullable: false, classification: internal}
+    - {name: order_count, type: long, nullable: false, classification: internal}
+    - {name: gross_amount, type: "decimal(18,2)", nullable: false, classification: confidential}
+    - {name: completed_order_count, type: long, nullable: false, classification: internal}
+    - {name: completed_amount, type: "decimal(18,2)", nullable: false, classification: confidential}
+  quality:
+    uniqueness: [order_date, country]
+    freshness: 5m

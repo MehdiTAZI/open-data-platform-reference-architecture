@@ -58,14 +58,20 @@ jobs:
         if: failure()
         run: |
           kubectl get pods -A -o wide || true
+          kubectl get jobs -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -200 || true
           kubectl -n odp-data get jobs,pvc -o wide || true
           kubectl -n odp-data describe pods || true
           kubectl -n odp-system describe pods || true
+          kubectl -n odp-system describe job/polaris-bootstrap || true
+          kubectl -n odp-system logs job/polaris-bootstrap --all-containers=true --tail=300 || true
+          kubectl -n odp-system describe job/polaris-catalog-setup || true
+          kubectl -n odp-system logs job/polaris-catalog-setup --all-containers=true --tail=300 || true
           kubectl -n odp-data logs deployment/postgres --tail=200 || true
           kubectl -n odp-data logs deployment/kafka --tail=200 || true
           kubectl -n odp-data logs deployment/debezium-connect --tail=300 || true
           kubectl -n odp-data logs deployment/cdc-orders --tail=300 || true
-          kubectl -n odp-system logs deployment/polaris --tail=200 || true
+          kubectl -n odp-system logs deployment/polaris --tail=300 || true
           kubectl -n odp-data logs deployment/trino --tail=200 || true
           kubectl -n odp-system logs deployment/airflow --tail=300 || true
           kubectl -n odp-data logs job/cdc-orders-connector-setup --all-containers=true --tail=300 || true
