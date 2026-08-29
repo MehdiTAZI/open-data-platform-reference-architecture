@@ -1,0 +1,17 @@
+apiVersion: odp/v1alpha1
+kind: DataProduct
+metadata:
+  name: daily-order-summary
+  domain: commerce
+spec:
+  owner:
+    team: commerce-data
+  inputs:
+    - postgres.source.orders
+  outputs:
+    - polaris.gold.daily_order_summary
+  classification: confidential
+  serviceLevel:
+    freshness: 24h
+    availability: 99.5
+  retentionDays: 730
