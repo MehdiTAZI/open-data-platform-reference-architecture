@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Shell validation
+        run: shellcheck scripts/*.sh
+      - name: Validate JSON schemas
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for p in Path('specs').rglob('*.json'):
+              json.loads(p.read_text())
+              print('OK', p)
+          PY
+      - name: Validate Kubernetes YAML client-side
+        run: |
+          kubectl apply --dry-run=client -f deployment/kubernetes/base/namespaces.yaml
+          kubectl apply --dry-run=client -f deployment/kubernetes/base/default-deny.yaml
+
+  standalone-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          config: infrastructure/environments/local/kind-config.yaml
+          cluster_name: odp-local
+      - run: kubectl apply -f deployment/kubernetes/base/namespaces.yaml
+      - run: kubectl apply -f deployment/kubernetes/base/default-deny.yaml
+      - run: ./scripts/smoke-test.sh

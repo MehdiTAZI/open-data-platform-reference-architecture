@@ -1,0 +1,19 @@
+apiVersion: odp/v1alpha1
+kind: DataContract
+metadata:
+  name: orders
+  owner: ecommerce-data
+spec:
+  schema:
+    - name: order_id
+      type: string
+      nullable: false
+      classification: internal
+    - name: amount
+      type: decimal(18,2)
+      nullable: false
+      classification: confidential
+  quality:
+    uniqueness:
+      - order_id
+    freshness: 15m

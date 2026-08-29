@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendataplatform.dev/schemas/data-contract.schema.json",
+  "title": "Open Data Platform Data Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "odp/v1alpha1"},
+    "kind": {"const": "DataContract"},
+    "metadata": {
+      "type": "object",
+      "required": ["name", "owner"],
+      "properties": {
+        "name": {"type": "string"},
+        "owner": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "required": ["schema", "quality"],
+      "properties": {
+        "schema": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "nullable"],
+            "properties": {
+              "name": {"type": "string"},
+              "type": {"type": "string"},
+              "nullable": {"type": "boolean"},
+              "classification": {"enum": ["public", "internal", "confidential", "restricted"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "uniqueness": {"type": "array", "items": {"type": "string"}},
+            "freshness": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

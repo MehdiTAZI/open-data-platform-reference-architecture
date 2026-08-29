@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odp-system
+  labels:
+    odp.io/plane: control
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odp-data
+  labels:
+    odp.io/plane: data
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odp-observability
+  labels:
+    odp.io/plane: observability

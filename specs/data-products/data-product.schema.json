@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendataplatform.dev/schemas/data-product.schema.json",
+  "title": "Open Data Platform Data Product",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "odp/v1alpha1"},
+    "kind": {"const": "DataProduct"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "domain"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"},
+        "domain": {"type": "string", "minLength": 2}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "outputs", "classification", "serviceLevel"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "required": ["team"],
+          "properties": {"team": {"type": "string", "minLength": 2}},
+          "additionalProperties": false
+        },
+        "inputs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "outputs": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "classification": {"enum": ["public", "internal", "confidential", "restricted"]},
+        "serviceLevel": {
+          "type": "object",
+          "required": ["freshness", "availability"],
+          "properties": {
+            "freshness": {"type": "string"},
+            "availability": {"type": "number", "minimum": 0, "maximum": 100}
+          },
+          "additionalProperties": false
+        },
+        "retentionDays": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

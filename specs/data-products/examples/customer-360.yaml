@@ -1,0 +1,18 @@
+apiVersion: odp/v1alpha1
+kind: DataProduct
+metadata:
+  name: customer-360
+  domain: customer
+spec:
+  owner:
+    team: customer-data
+  inputs:
+    - crm.customer
+    - ecommerce.order
+  outputs:
+    - customer.customer_360
+  classification: confidential
+  serviceLevel:
+    freshness: 1h
+    availability: 99.9
+  retentionDays: 730
