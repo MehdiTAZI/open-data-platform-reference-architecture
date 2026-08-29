@@ -29,13 +29,20 @@ ensure_grafana_secret() {
     secret_value odp-observability grafana-credentials admin-password
     return
   fi
-
   local password
   password="$(rand_hex 24)"
   kubectl -n odp-observability create secret generic grafana-credentials \
     --from-literal=admin-password="$password" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   printf '%s' "$password"
+}
+
+sync_data_plane_polaris_secret() {
+  local root_secret="$1"
+  kubectl -n odp-data create secret generic trino-polaris-credentials \
+    --from-literal=client-id=root \
+    --from-literal=client-secret="$root_secret" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 }
 
 write_local_credentials() {
@@ -75,11 +82,8 @@ if kubectl -n odp-data get secret postgres-credentials >/dev/null 2>&1 \
   garage_access="$(secret_value odp-data garage-credentials access-key)"
   garage_secret="$(secret_value odp-data garage-credentials secret-key)"
   polaris_root_secret="$(secret_value odp-system polaris-root-credentials client-secret)"
-
-  write_local_credentials \
-    "$garage_access" "$garage_secret" "$polaris_root_secret" \
-    "$postgres_user" "$postgres_password" "$grafana_password"
-
+  sync_data_plane_polaris_secret "$polaris_root_secret"
+  write_local_credentials "$garage_access" "$garage_secret" "$polaris_root_secret" "$postgres_user" "$postgres_password" "$grafana_password"
   echo "Reused existing standalone credentials and refreshed .local/credentials.env"
   exit 0
 fi
@@ -94,30 +98,23 @@ garage_metrics="$(rand_hex 32)"
 polaris_root_secret="$(rand_hex 24)"
 
 kubectl -n odp-data create secret generic postgres-credentials \
-  --from-literal=username="$postgres_user" \
-  --from-literal=password="$postgres_password" \
+  --from-literal=username="$postgres_user" --from-literal=password="$postgres_password" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n odp-data create secret generic garage-credentials \
-  --from-literal=access-key="$garage_access" \
-  --from-literal=secret-key="$garage_secret" \
-  --from-literal=rpc-secret="$garage_rpc" \
-  --from-literal=admin-token="$garage_admin" \
+  --from-literal=access-key="$garage_access" --from-literal=secret-key="$garage_secret" \
+  --from-literal=rpc-secret="$garage_rpc" --from-literal=admin-token="$garage_admin" \
   --from-literal=metrics-token="$garage_metrics" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n odp-system create secret generic polaris-db-credentials \
-  --from-literal=username="$postgres_user" \
-  --from-literal=password="$postgres_password" \
+  --from-literal=username="$postgres_user" --from-literal=password="$postgres_password" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n odp-system create secret generic polaris-root-credentials \
-  --from-literal=client-id=root \
-  --from-literal=client-secret="$polaris_root_secret" \
+  --from-literal=client-id=root --from-literal=client-secret="$polaris_root_secret" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-write_local_credentials \
-  "$garage_access" "$garage_secret" "$polaris_root_secret" \
-  "$postgres_user" "$postgres_password" "$grafana_password"
-
+sync_data_plane_polaris_secret "$polaris_root_secret"
+write_local_credentials "$garage_access" "$garage_secret" "$polaris_root_secret" "$postgres_user" "$postgres_password" "$grafana_password"
 echo "Generated new ephemeral standalone credentials in .local/credentials.env"

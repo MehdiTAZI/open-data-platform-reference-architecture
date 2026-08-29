@@ -31,29 +31,20 @@ spec:
       containers:
         - name: bootstrap
           image: apache/polaris-admin-tool:1.7.0
-          args:
-            - bootstrap
-            - -r
-            - odp
-            - -c
-            - odp,root,$(POLARIS_ROOT_SECRET)
+          args: ["bootstrap", "-r", "odp", "-c", "odp,root,$(POLARIS_ROOT_SECRET)"]
           env:
             - {name: POLARIS_PERSISTENCE_TYPE, value: relational-jdbc}
             - {name: QUARKUS_DATASOURCE_JDBC_URL, value: "jdbc:postgresql://postgres.odp-data.svc.cluster.local:5432/polaris"}
             - name: QUARKUS_DATASOURCE_USERNAME
-              valueFrom:
-                secretKeyRef: {name: polaris-db-credentials, key: username}
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
             - name: QUARKUS_DATASOURCE_PASSWORD
-              valueFrom:
-                secretKeyRef: {name: polaris-db-credentials, key: password}
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: password}}
             - name: POLARIS_ROOT_SECRET
-              valueFrom:
-                secretKeyRef: {name: polaris-root-credentials, key: client-secret}
+              valueFrom: {secretKeyRef: {name: polaris-root-credentials, key: client-secret}}
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 768Mi}
-          securityContext:
-            allowPrivilegeEscalation: false
+          securityContext: {allowPrivilegeEscalation: false}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -66,8 +57,7 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app.kubernetes.io/name: polaris
+    matchLabels: {app.kubernetes.io/name: polaris}
   template:
     metadata:
       labels:
@@ -83,12 +73,16 @@ spec:
             - {name: POLARIS_PERSISTENCE_TYPE, value: relational-jdbc}
             - {name: QUARKUS_DATASOURCE_JDBC_URL, value: "jdbc:postgresql://postgres.odp-data.svc.cluster.local:5432/polaris"}
             - name: QUARKUS_DATASOURCE_USERNAME
-              valueFrom:
-                secretKeyRef: {name: polaris-db-credentials, key: username}
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
             - name: QUARKUS_DATASOURCE_PASSWORD
-              valueFrom:
-                secretKeyRef: {name: polaris-db-credentials, key: password}
-            - {name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER, value: "true"}
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: password}}
+            - {name: POLARIS_REALM_CONTEXT_REALMS, value: "odp"}
+            - {name: POLARIS_REALM_CONTEXT_REQUIRE_HEADER, value: "false"}
+            - {name: AWS_REGION, value: "garage"}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: access-key}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: garage-credentials, key: secret-key}}
           ports:
             - {name: api, containerPort: 8181}
             - {name: management, containerPort: 8182}
@@ -106,8 +100,7 @@ spec:
           resources:
             requests: {cpu: 250m, memory: 512Mi}
             limits: {cpu: "2", memory: 1536Mi}
-          securityContext:
-            allowPrivilegeEscalation: false
+          securityContext: {allowPrivilegeEscalation: false}
 ---
 apiVersion: v1
 kind: Service
@@ -115,8 +108,7 @@ metadata:
   name: polaris
   namespace: odp-system
 spec:
-  selector:
-    app.kubernetes.io/name: polaris
+  selector: {app.kubernetes.io/name: polaris}
   ports:
     - {name: api, port: 8181, targetPort: api}
     - {name: management, port: 8182, targetPort: management}

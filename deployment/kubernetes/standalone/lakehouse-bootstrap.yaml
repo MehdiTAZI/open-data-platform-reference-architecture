@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lakehouse-bootstrap
+  namespace: odp-system
+  labels:
+    app.kubernetes.io/name: lakehouse-bootstrap
+    app.kubernetes.io/part-of: odp
+spec:
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lakehouse-bootstrap
+        app.kubernetes.io/part-of: odp
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: bootstrap
+          image: python:3.13.11-alpine3.23
+          command: ["python", "-c"]
+          args:
+            - |
+              import base64, json, os, time, urllib.error, urllib.parse, urllib.request
+
+              base = "http://polaris.odp-system.svc.cluster.local:8181"
+              client_id = "root"
+              secret = os.environ["POLARIS_ROOT_SECRET"]
+
+              for _ in range(120):
+                  try:
+                      urllib.request.urlopen(base + "/q/health/ready", timeout=2)
+                      break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit("Polaris did not become ready")
+
+              token_req = urllib.request.Request(
+                  base + "/api/catalog/v1/oauth/tokens",
+                  data=urllib.parse.urlencode({
+                      "grant_type": "client_credentials",
+                      "scope": "PRINCIPAL_ROLE:ALL",
+                  }).encode(),
+                  headers={
+                      "Authorization": "Basic " + base64.b64encode(f"{client_id}:{secret}".encode()).decode(),
+                      "Content-Type": "application/x-www-form-urlencoded",
+                  },
+              )
+              token = json.load(urllib.request.urlopen(token_req))["access_token"]
+              headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+              get_req = urllib.request.Request(base + "/api/management/v1/catalogs/lakehouse", headers=headers)
+              try:
+                  urllib.request.urlopen(get_req)
+                  print("Catalog lakehouse already exists")
+                  raise SystemExit(0)
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+
+              payload = {
+                  "catalog": {
+                      "type": "INTERNAL",
+                      "name": "lakehouse",
+                      "properties": {"default-base-location": "s3://warehouse/iceberg/"},
+                      "storageConfigInfo": {
+                          "storageType": "S3",
+                          "allowedLocations": ["s3://warehouse/"],
+                          "endpoint": "http://garage.odp-data.svc.cluster.local:3900",
+                          "endpointInternal": "http://garage.odp-data.svc.cluster.local:3900",
+                          "stsUnavailable": True,
+                          "pathStyleAccess": True,
+                          "region": "garage",
+                      },
+                  }
+              }
+              create_req = urllib.request.Request(
+                  base + "/api/management/v1/catalogs",
+                  data=json.dumps(payload).encode(),
+                  headers=headers,
+                  method="POST",
+              )
+              with urllib.request.urlopen(create_req) as response:
+                  print("Created Polaris catalog lakehouse:", response.status)
+          env:
+            - name: POLARIS_ROOT_SECRET
+              valueFrom: {secretKeyRef: {name: polaris-root-credentials, key: client-secret}}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 192Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}

@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-system-egress-garage
+  namespace: odp-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: polaris
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garage
+      ports:
+        - {protocol: TCP, port: 3900}
+  policyTypes: [Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-system-ingress-garage
+  namespace: odp-data
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: garage
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: odp-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: polaris
+      ports:
+        - {protocol: TCP, port: 3900}
+  policyTypes: [Ingress]
