@@ -6,8 +6,10 @@ This repository defines **architecture first, technology second**. It models the
 
 The target is deliberately dual-mode:
 
-- **Standalone / local** — runnable on a developer workstation for learning, architecture validation and integration testing.
+- **Standalone / local** — a production-shaped environment on Kind for learning, architecture validation and integration testing.
 - **Production / industrialized** — deployable through Infrastructure as Code, Kubernetes, CI/CD, GitOps, policy enforcement, observability and environment-specific configuration.
+
+> **Important:** standalone is intentionally small and partially ephemeral. It validates production interfaces; it is not itself a production topology. See [`docs/operations/standalone.md`](docs/operations/standalone.md) and [`docs/operations/production-readiness.md`](docs/operations/production-readiness.md).
 
 ## Architecture principles
 
@@ -15,8 +17,8 @@ The target is deliberately dual-mode:
 2. **Open interfaces and standards** — prefer portable standards and open protocols to proprietary coupling.
 3. **Security by design** — workload identity, least privilege, encryption, secrets management and auditability are platform primitives.
 4. **Everything as code** — infrastructure, platform configuration, policies, contracts, data products, quality expectations and observability are versioned.
-5. **One golden path, explicit alternatives** — the repository implements one coherent reference stack and documents alternatives through ADRs instead of creating an unmaintainable product zoo.
-6. **Production parity** — local environments are smaller, not architecturally different.
+5. **One golden path, explicit alternatives** — implement one coherent reference stack and document alternatives through ADRs.
+6. **Production parity through contracts** — environments may use smaller or managed implementations, but workload-facing interfaces stay compatible.
 7. **Observable and operable by default** — telemetry, health checks, SLOs, lineage and runbooks are part of the design.
 8. **Data products and contracts** — ownership, quality, classification, retention and service expectations are machine-readable.
 9. **Automation before manual operations** — repeatable builds, tests, deployment and recovery are mandatory.
@@ -24,16 +26,19 @@ The target is deliberately dual-mode:
 
 ## Reference stack
 
-| Capability | Default reference implementation |
+| Capability | Reference implementation |
 |---|---|
 | Container platform | Kubernetes |
 | Infrastructure as Code | OpenTofu |
 | Local Kubernetes | Kind |
-| Local object storage | MinIO (S3-compatible) |
+| Standalone object storage | Garage (S3-compatible) |
+| Production object storage | Cloud-native / explicitly supported S3-compatible storage |
 | Event streaming | Apache Kafka |
 | CDC | Debezium / Kafka Connect |
 | Batch & general-purpose compute | Apache Spark |
 | Lakehouse table format | Apache Iceberg |
+| Iceberg REST catalog | Apache Polaris |
+| Catalog persistence | PostgreSQL |
 | SQL serving / federation | Trino |
 | Orchestration | Apache Airflow |
 | Analytics transformation | dbt |
@@ -43,6 +48,8 @@ The target is deliberately dual-mode:
 | Policy enforcement | Open Policy Agent |
 | GitOps | Argo CD |
 | CI/CD | GitHub Actions |
+
+All runtime versions are centrally tracked in [`config/versions.yaml`](config/versions.yaml). Production release pipelines are expected to lock deployable images to immutable digests.
 
 The reference stack is **replaceable by design**. Decisions and alternatives are documented under [`docs/adr`](docs/adr).
 
@@ -69,6 +76,10 @@ The reference stack is **replaceable by design**. Decisions and alternatives are
                                   LAKEHOUSE
                               Apache Iceberg
                                       |
+                               Iceberg REST
+                                      |
+                              Apache Polaris
+                                      |
                     +-----------------+-----------------+
                     |                 |                 |
                   Spark             Trino             Flink*
@@ -88,11 +99,32 @@ The reference stack is **replaceable by design**. Decisions and alternatives are
   *Flink is an optional extension; Spark is the default processing engine.
 ```
 
+## Runtime contracts
+
+The standalone and production environments share contracts rather than identical physical implementations:
+
+```text
+                      STABLE PLATFORM CONTRACTS
+                               |
+        +----------------------+----------------------+
+        |                      |                      |
+   Kubernetes API           S3 API             Iceberg REST
+        |                      |                      |
+     Kafka API             Spark Jobs           Trino / Airflow
+        |                      |                      |
+        +----------------------+----------------------+
+                               |
+                 environment-specific topology
+```
+
+See [`docs/architecture/runtime-interfaces.md`](docs/architecture/runtime-interfaces.md).
+
 ## Repository map
 
 ```text
 .
 ├── architecture/              # Reference diagrams, capability model and patterns
+├── config/                    # Central compatibility/version inputs
 ├── docs/
 │   ├── architecture/          # Logical/physical architecture and NFRs
 │   ├── adr/                   # Architecture Decision Records
@@ -112,9 +144,51 @@ The reference stack is **replaceable by design**. Decisions and alternatives are
 └── .github/                   # CI workflows and contribution automation
 ```
 
+## Standalone quick start
+
+Recommended Docker allocation: **8 CPUs, 12 GiB RAM, 20 GiB free disk**.
+
+```bash
+make doctor
+make validate
+make local-up
+make smoke-test
+```
+
+Inspect the environment:
+
+```bash
+make local-status
+```
+
+Generated local credentials are written to `.local/credentials.env` and never committed.
+
+Stop and remove everything:
+
+```bash
+make local-down
+```
+
+The current standalone profile boots:
+
+```text
+Kind / Kubernetes
+├── odp-system
+│   ├── Apache Polaris + PostgreSQL-backed metastore
+│   └── Apache Airflow
+├── odp-data
+│   ├── Garage S3-compatible object storage
+│   ├── Apache Kafka (single-node KRaft)
+│   ├── PostgreSQL
+│   ├── Apache Spark client + dynamic Kubernetes executors
+│   └── Trino
+└── odp-observability
+    └── reserved for the observability stack
+```
+
 ## Delivery roadmap
 
-### V0.1 — Architecture foundation
+### V0.1 — Architecture foundation ✅
 
 - Capability model and architecture principles
 - Production/non-production design constraints
@@ -123,16 +197,34 @@ The reference stack is **replaceable by design**. Decisions and alternatives are
 - Data product and data contract specifications
 - Repository quality gates and CI skeleton
 
-### V0.2 — Standalone executable platform
+### V0.2 — Standalone executable platform 🚧
 
-- Kind-based local Kubernetes platform
-- MinIO, Kafka, Spark, Iceberg, Trino and Airflow
-- Repeatable `make local-up` / `make local-down`
-- Health checks and smoke tests
+Implemented in the current iteration:
+
+- Kind-based local Kubernetes runtime
+- centrally pinned component versions
+- generated standalone-only secrets
+- PostgreSQL metadata service
+- S3-compatible Garage storage
+- Kafka 4.x KRaft event backbone
+- PostgreSQL-backed Apache Polaris catalog
+- Spark-on-Kubernetes runtime
+- Trino serving runtime
+- Airflow standalone orchestration runtime
+- default-deny networking plus explicit standalone allow rules
+- resource constraints, probes and smoke tests
+- scheduled full-stack integration workflow
+
+Still targeted before declaring V0.2 complete:
+
+- create and validate a Polaris-backed Iceberg catalog against the S3 endpoint
+- build the Spark + Iceberg runtime image with checksum-verified dependencies
+- add Prometheus/Grafana/OpenTelemetry baseline
+- add compatibility lock/digest resolution for release artifacts
 
 ### V0.3 — Golden pipelines
 
-- Batch: PostgreSQL → Spark → Iceberg → Trino
+- Batch: PostgreSQL → Spark → Iceberg/Polaris → Trino
 - CDC: PostgreSQL → Debezium → Kafka → Spark → Iceberg
 - Streaming: Kafka → Structured Streaming → Iceberg
 - dbt transformations, data quality and OpenLineage
@@ -146,19 +238,6 @@ The reference stack is **replaceable by design**. Decisions and alternatives are
 - Backup/restore, DR and capacity guidance
 - FinOps tagging and cost allocation
 - Policy enforcement and supply-chain security
-
-## Quick start
-
-The standalone implementation is intentionally built to converge toward:
-
-```bash
-make doctor
-make bootstrap
-make local-up
-make smoke-test
-```
-
-The commands are added incrementally as the executable platform is introduced. No production deployment should rely on implicit defaults; production configuration is environment-specific and validated through CI.
 
 ## Production readiness model
 
@@ -181,7 +260,7 @@ Local examples may reduce replicas and persistence requirements, but they must p
 
 ## Status
 
-This repository is being built iteratively. Until `v1.0.0`, APIs, schemas and layouts may evolve. Production-readiness claims apply only to components explicitly marked as such in their documentation.
+The project is currently **pre-v1.0**. APIs, schemas and layouts may evolve. Production-readiness claims apply only to components explicitly marked as such in their documentation.
 
 ## License
 

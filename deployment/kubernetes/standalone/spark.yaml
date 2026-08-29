@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+  namespace: odp-data
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-runtime
+  namespace: odp-data
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-runtime
+  namespace: odp-data
+subjects:
+  - kind: ServiceAccount
+    name: spark
+    namespace: odp-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-runtime
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-client
+  namespace: odp-data
+  labels:
+    app.kubernetes.io/name: spark-client
+    app.kubernetes.io/part-of: odp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-client
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark-client
+        app.kubernetes.io/part-of: odp
+    spec:
+      serviceAccountName: spark
+      containers:
+        - name: spark
+          image: apache/spark:4.2.0-python3
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-ec"]
+          args: ["trap : TERM INT; sleep infinity & wait"]
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false

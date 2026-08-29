@@ -1,0 +1,40 @@
+name: Standalone Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  full-standalone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.31.0
+          config: infrastructure/environments/local/kind-config.yaml
+          cluster_name: odp-local
+      - name: Install validation dependency
+        run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
+      - name: Bootstrap standalone platform
+        run: |
+          make validate
+          ./scripts/local-up.sh
+      - name: Smoke test
+        run: make smoke-test
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n odp-data describe pods || true
+          kubectl -n odp-system describe pods || true
+          kubectl -n odp-data logs deployment/postgres --tail=200 || true
+          kubectl -n odp-data logs deployment/kafka --tail=200 || true
+          kubectl -n odp-system logs deployment/polaris --tail=200 || true
+          kubectl -n odp-data logs deployment/trino --tail=200 || true
+          kubectl -n odp-system logs deployment/airflow --tail=200 || true

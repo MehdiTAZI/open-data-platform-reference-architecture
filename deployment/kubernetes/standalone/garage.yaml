@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+  namespace: odp-data
+  labels:
+    app.kubernetes.io/name: garage
+    app.kubernetes.io/part-of: odp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: garage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garage
+        app.kubernetes.io/part-of: odp
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: render-config
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              cat > /generated/garage.toml <<EOF
+              metadata_dir = "/var/lib/garage/meta"
+              data_dir = "/var/lib/garage/data"
+              db_engine = "sqlite"
+              replication_factor = 1
+              rpc_bind_addr = "[::]:3901"
+              rpc_public_addr = "garage.odp-data.svc.cluster.local:3901"
+              rpc_secret = "${GARAGE_RPC_SECRET}"
+
+              [s3_api]
+              s3_region = "garage"
+              api_bind_addr = "[::]:3900"
+              root_domain = ".s3.garage.local"
+
+              [admin]
+              api_bind_addr = "[::]:3903"
+              admin_token = "${GARAGE_ADMIN_TOKEN}"
+              metrics_token = "${GARAGE_METRICS_TOKEN}"
+              EOF
+              chmod 0440 /generated/garage.toml
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef: {name: garage-credentials, key: rpc-secret}
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef: {name: garage-credentials, key: admin-token}
+            - name: GARAGE_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef: {name: garage-credentials, key: metrics-token}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: config, mountPath: /generated}
+      containers:
+        - name: garage
+          image: dxflrs/garage:v2.3.0
+          imagePullPolicy: IfNotPresent
+          command: ["/garage"]
+          args: ["server", "--single-node", "--default-bucket"]
+          env:
+            - name: GARAGE_CONFIG_FILE
+              value: /etc/garage.toml
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: garage-credentials, key: access-key}
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: garage-credentials, key: secret-key}
+            - name: GARAGE_DEFAULT_BUCKET
+              value: warehouse
+          ports:
+            - {name: s3, containerPort: 3900}
+            - {name: rpc, containerPort: 3901}
+            - {name: admin, containerPort: 3903}
+          startupProbe:
+            tcpSocket: {port: s3}
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            tcpSocket: {port: s3}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: s3}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/garage.toml, subPath: garage.toml, readOnly: true}
+            - {name: metadata, mountPath: /var/lib/garage/meta}
+            - {name: data, mountPath: /var/lib/garage/data}
+      volumes:
+        - {name: config, emptyDir: {}}
+        - {name: metadata, emptyDir: {}}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+  namespace: odp-data
+spec:
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - {name: s3, port: 3900, targetPort: s3}
+    - {name: admin, port: 3903, targetPort: admin}

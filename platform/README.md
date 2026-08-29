@@ -1,32 +1,28 @@
-# Platform Capability Implementations
+# Platform Implementations
 
-This directory contains the executable reference implementations of the capability model.
+This directory is organized by **capability**, not product.
 
-Planned layout:
+The executable standalone assets currently live under `deployment/kubernetes/standalone` while capability-specific source code, images and configuration will progressively be introduced here.
+
+Planned capability boundaries:
 
 ```text
 platform/
-  ingestion/
-  messaging/
-  storage/
-  processing/
-  orchestration/
-  transformation/
-  serving/
-  governance/
-  security/
-  observability/
+├── ingestion/
+│   ├── batch/
+│   ├── cdc/
+│   └── streaming/
+├── processing/
+│   └── spark/
+├── orchestration/
+│   └── airflow/
+├── storage/
+│   └── iceberg/
+├── serving/
+│   └── trino/
+├── governance/
+├── security/
+└── observability/
 ```
 
-Each capability implementation must provide:
-
-1. a capability README independent of vendor jargon;
-2. the selected reference implementation and version policy;
-3. local deployment configuration;
-4. production requirements/differences;
-5. configuration interface;
-6. network and identity requirements;
-7. health/observability contract;
-8. tests;
-9. upgrade/rollback notes;
-10. known limitations.
+Every implementation must document its interface contract, local profile, production profile, security model, operational ownership and replacement/migration boundary.

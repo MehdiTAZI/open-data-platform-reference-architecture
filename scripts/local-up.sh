@@ -11,8 +11,25 @@ else
 fi
 
 kubectl apply -f deployment/kubernetes/base/namespaces.yaml
-# Default deny is intentionally applied only to the data plane. Explicit allow
-# policies will be introduced with each platform service before it is deployed.
-kubectl apply -f deployment/kubernetes/base/default-deny.yaml
+./scripts/local-secrets.sh
 
-echo "Standalone control plane is ready. Platform services are introduced in V0.2."
+# Re-running bootstrap against a new local database is safe. A stale completed Job
+# would otherwise prevent re-execution after individual service recreation.
+kubectl -n odp-system delete job polaris-bootstrap --ignore-not-found >/dev/null 2>&1 || true
+
+kubectl apply -k deployment/kubernetes/standalone
+
+echo "Waiting for standalone services..."
+kubectl -n odp-data rollout status deployment/postgres --timeout=180s
+kubectl -n odp-data rollout status deployment/garage --timeout=180s
+kubectl -n odp-data rollout status deployment/kafka --timeout=240s
+kubectl -n odp-system wait --for=condition=complete job/polaris-bootstrap --timeout=240s
+kubectl -n odp-system rollout status deployment/polaris --timeout=300s
+kubectl -n odp-data rollout status deployment/trino --timeout=300s
+kubectl -n odp-data rollout status deployment/spark-client --timeout=180s
+kubectl -n odp-system rollout status deployment/airflow --timeout=420s
+
+echo
+echo "Standalone platform is ready."
+echo "Run: make smoke-test"
+echo "Credentials: source .local/credentials.env"
