@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: helm/kind-action@v1
         with:
-          version: v0.31.0
+          version: v0.32.0
           config: infrastructure/environments/local/kind-config.yaml
           cluster_name: odp-local
       - name: Install validation dependency
