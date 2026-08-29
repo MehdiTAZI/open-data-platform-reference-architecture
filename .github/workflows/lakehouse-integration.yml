@@ -43,7 +43,8 @@ jobs:
           kubectl get pods -A -o wide || true
           kubectl -n odp-system get jobs -o wide || true
           kubectl -n odp-data logs deployment/kafka --tail=200 || true
-          kubectl -n odp-system logs job/polaris-bootstrap --all-containers --tail=200 || true
+          # Do not print polaris-bootstrap logs: bootstrap credentials are supplied
+          # through an ephemeral in-memory file and must never be surfaced in CI.
           kubectl -n odp-system describe pod -l app.kubernetes.io/name=polaris || true
           kubectl -n odp-system logs deployment/polaris --tail=200 || true
           kubectl -n odp-system logs job/lakehouse-bootstrap --tail=200 || true

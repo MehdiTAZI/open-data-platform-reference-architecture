@@ -30,7 +30,10 @@ spec:
             - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
             - {name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT"}
             - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER"}
-            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@kafka.odp-data.svc.cluster.local:9093"}
+            # Single-node standalone controller traffic is intentionally loopback.
+            # Using the readiness-gated Kubernetes Service here causes a circular
+            # dependency: the broker cannot register before the pod becomes Ready.
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093"}
             - {name: CLUSTER_ID, value: "4L6g3nShT-eMCtK--X86sw"}
             - {name: KAFKA_LOG_DIRS, value: "/tmp/kraft-combined-logs"}
             - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}

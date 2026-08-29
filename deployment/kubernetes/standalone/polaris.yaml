@@ -26,10 +26,21 @@ spec:
             - name: DB_USER
               valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
           securityContext: {allowPrivilegeEscalation: false}
+        - name: render-bootstrap-credentials
+          image: busybox:1.37.0
+          command: ["/bin/sh", "-ec"]
+          args:
+            - printf 'odp,root,%s\n' "$POLARIS_ROOT_SECRET" > /bootstrap/credentials.txt; chmod 600 /bootstrap/credentials.txt
+          env:
+            - name: POLARIS_ROOT_SECRET
+              valueFrom: {secretKeyRef: {name: polaris-root-credentials, key: client-secret}}
+          volumeMounts:
+            - {name: bootstrap-credentials, mountPath: /bootstrap}
+          securityContext: {allowPrivilegeEscalation: false}
       containers:
         - name: bootstrap
           image: apache/polaris-admin-tool:1.7.0
-          args: ["bootstrap", "-r", "odp", "-c", "odp,root,$(POLARIS_ROOT_SECRET)"]
+          args: ["bootstrap", "--credentials-file=/bootstrap/credentials.txt"]
           env:
             - {name: POLARIS_PERSISTENCE_TYPE, value: relational-jdbc}
             - {name: QUARKUS_DATASOURCE_JDBC_URL, value: "jdbc:postgresql://postgres.odp-data.svc.cluster.local:5432/polaris"}
@@ -37,12 +48,14 @@ spec:
               valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
             - name: QUARKUS_DATASOURCE_PASSWORD
               valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: password}}
-            - name: POLARIS_ROOT_SECRET
-              valueFrom: {secretKeyRef: {name: polaris-root-credentials, key: client-secret}}
+          volumeMounts:
+            - {name: bootstrap-credentials, mountPath: /bootstrap, readOnly: true}
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 768Mi}
           securityContext: {allowPrivilegeEscalation: false}
+      volumes:
+        - {name: bootstrap-credentials, emptyDir: {medium: Memory}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -63,6 +76,23 @@ spec:
         app.kubernetes.io/part-of: odp
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-bootstrap-schema
+          image: postgres:18.6
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until PGPASSWORD="$DB_PASSWORD" psql \
+                -h postgres.odp-data.svc.cluster.local -U "$DB_USER" -d polaris \
+                -tAc "SELECT to_regclass('polaris_schema.entities')" | grep -q polaris_schema.entities; do
+                sleep 2
+              done
+          env:
+            - name: DB_USER
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: username}}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: polaris-db-credentials, key: password}}
+          securityContext: {allowPrivilegeEscalation: false}
       containers:
         - name: polaris
           image: apache/polaris:1.7.0
