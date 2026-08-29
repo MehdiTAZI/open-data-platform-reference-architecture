@@ -5,7 +5,7 @@ connector_manifest="examples/golden-paths/cdc-orders/kubernetes/connector-setup.
 stream_manifest="examples/golden-paths/cdc-orders/kubernetes/streaming.yaml"
 
 postgres_sql() {
-  kubectl -n odp-data exec -i deployment/postgres -- /bin/bash -ec 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d platform' <<<"$1"
+  kubectl -n odp-data exec -i deployment/postgres -- /bin/bash -ec "psql -v ON_ERROR_STOP=1 -U \"\$POSTGRES_USER\" -d platform" <<<"$1"
 }
 
 trino_query() {
@@ -86,7 +86,6 @@ wait_for_query "$summary_sql" $'6\t735.00\t645.00' "post-restart mutation"
 echo "[7/8] Verify transport metadata is retained"
 bronze_count="$(trino_query 'SELECT CAST(count(*) AS VARCHAR) FROM polaris.bronze.orders_cdc_events')"
 [[ "$bronze_count" =~ ^[0-9]+$ ]] && (( bronze_count >= 10 ))
-
 
 echo "[8/8] Restore canonical source state for repeatability"
 reset_source
