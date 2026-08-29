@@ -1,0 +1,16 @@
+apiVersion: odp/v1alpha1
+kind: DataContract
+metadata:
+  name: orders-cdc-event
+  owner: commerce-data
+spec:
+  schema:
+    - {name: kafka_partition, type: int, nullable: false, classification: internal}
+    - {name: kafka_offset, type: long, nullable: false, classification: internal}
+    - {name: order_id, type: long, nullable: false, classification: internal}
+    - {name: op, type: string, nullable: false, classification: internal}
+    - {name: source_lsn, type: long, nullable: false, classification: internal}
+    - {name: event_value, type: string, nullable: false, classification: confidential}
+  quality:
+    uniqueness: [kafka_partition, kafka_offset]
+    freshness: 5m

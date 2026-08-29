@@ -6,6 +6,7 @@ resources:
   - postgres.yaml
   - garage.yaml
   - kafka.yaml
+  - debezium-connect.yaml
   - polaris.yaml
   - polaris-setup.yaml
   - trino.yaml

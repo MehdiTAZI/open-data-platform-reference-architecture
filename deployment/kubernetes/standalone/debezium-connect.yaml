@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium-connect
+  namespace: odp-data
+  labels:
+    app.kubernetes.io/name: debezium-connect
+    app.kubernetes.io/part-of: odp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: debezium-connect
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: debezium-connect
+        app.kubernetes.io/part-of: odp
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: connect
+          image: quay.io/debezium/connect:3.6.1.Final
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: BOOTSTRAP_SERVERS, value: "kafka.odp-data.svc.cluster.local:9092"}
+            - {name: GROUP_ID, value: "odp-connect"}
+            - {name: CONFIG_STORAGE_TOPIC, value: "_odp_connect_configs"}
+            - {name: OFFSET_STORAGE_TOPIC, value: "_odp_connect_offsets"}
+            - {name: STATUS_STORAGE_TOPIC, value: "_odp_connect_status"}
+            - {name: KEY_CONVERTER, value: "org.apache.kafka.connect.json.JsonConverter"}
+            - {name: VALUE_CONVERTER, value: "org.apache.kafka.connect.json.JsonConverter"}
+            - {name: CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE, value: "false"}
+            - {name: CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE, value: "false"}
+            - {name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR, value: "1"}
+            - {name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR, value: "1"}
+            - {name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR, value: "1"}
+            - {name: CONNECT_OFFSET_STORAGE_PARTITIONS, value: "1"}
+            - {name: CONNECT_STATUS_STORAGE_PARTITIONS, value: "1"}
+            - {name: OFFSET_FLUSH_INTERVAL_MS, value: "5000"}
+            - {name: HEAP_OPTS, value: "-Xms384m -Xmx384m"}
+          ports:
+            - {name: rest, containerPort: 8083}
+          startupProbe:
+            httpGet: {path: /connectors, port: rest}
+            failureThreshold: 60
+            periodSeconds: 3
+          readinessProbe:
+            httpGet: {path: /connectors, port: rest}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /connectors, port: rest}
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-connect
+  namespace: odp-data
+spec:
+  selector:
+    app.kubernetes.io/name: debezium-connect
+  ports:
+    - {name: rest, port: 8083, targetPort: rest}

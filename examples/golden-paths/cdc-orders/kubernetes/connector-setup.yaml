@@ -1,0 +1,117 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cdc-orders-connector-setup
+  namespace: odp-data
+  labels:
+    app.kubernetes.io/name: cdc-orders-connector-setup
+    odp.io/golden-path: cdc
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cdc-orders-connector-setup
+        odp.io/golden-path: cdc
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      initContainers:
+        - name: configure-postgres-replication
+          image: postgres:18.6
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              export PGPASSWORD="$POSTGRES_PASSWORD"
+              until pg_isready -h postgres.odp-data.svc.cluster.local -p 5432 -U "$POSTGRES_USER" -d platform; do sleep 2; done
+
+              role_exists="$(psql -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -tAc "SELECT 1 FROM pg_roles WHERE rolname='debezium'")"
+              if [[ "$role_exists" == "1" ]]; then
+                psql -v ON_ERROR_STOP=1 -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -v dbz_password="$DEBEZIUM_PASSWORD" <<'SQL'
+              ALTER ROLE debezium WITH LOGIN REPLICATION PASSWORD :'dbz_password';
+              SQL
+              else
+                psql -v ON_ERROR_STOP=1 -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -v dbz_password="$DEBEZIUM_PASSWORD" <<'SQL'
+              CREATE ROLE debezium WITH LOGIN REPLICATION PASSWORD :'dbz_password';
+              SQL
+              fi
+
+              psql -v ON_ERROR_STOP=1 -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform <<'SQL'
+              GRANT CONNECT ON DATABASE platform TO debezium;
+              GRANT USAGE ON SCHEMA source TO debezium;
+              GRANT SELECT ON ALL TABLES IN SCHEMA source TO debezium;
+              ALTER DEFAULT PRIVILEGES IN SCHEMA source GRANT SELECT ON TABLES TO debezium;
+              SQL
+
+              publication_exists="$(psql -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -tAc "SELECT 1 FROM pg_publication WHERE pubname='odp_orders_pub'")"
+              if [[ "$publication_exists" == "1" ]]; then
+                psql -v ON_ERROR_STOP=1 -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -c "ALTER PUBLICATION odp_orders_pub SET TABLE source.orders"
+              else
+                psql -v ON_ERROR_STOP=1 -h postgres.odp-data.svc.cluster.local -U "$POSTGRES_USER" -d platform -c "CREATE PUBLICATION odp_orders_pub FOR TABLE source.orders"
+              fi
+          env:
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: postgres-credentials, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-credentials, key: password}}
+            - name: DEBEZIUM_PASSWORD
+              valueFrom: {secretKeyRef: {name: debezium-credentials, key: password}}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext: {allowPrivilegeEscalation: false}
+      containers:
+        - name: configure-connector
+          image: quay.io/debezium/connect:3.6.1.Final
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              until curl -fsS http://debezium-connect.odp-data.svc.cluster.local:8083/connectors >/dev/null; do sleep 2; done
+              cat > /tmp/connector.json <<JSON
+              {
+                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+                "tasks.max": "1",
+                "database.hostname": "postgres.odp-data.svc.cluster.local",
+                "database.port": "5432",
+                "database.user": "debezium",
+                "database.password": "${DEBEZIUM_PASSWORD}",
+                "database.dbname": "platform",
+                "topic.prefix": "odp",
+                "schema.include.list": "source",
+                "table.include.list": "source.orders",
+                "plugin.name": "pgoutput",
+                "slot.name": "odp_orders_slot",
+                "publication.name": "odp_orders_pub",
+                "publication.autocreate.mode": "disabled",
+                "snapshot.mode": "initial",
+                "slot.drop.on.stop": "false",
+                "decimal.handling.mode": "string",
+                "time.precision.mode": "connect",
+                "tombstones.on.delete": "false",
+                "include.schema.changes": "false",
+                "heartbeat.interval.ms": "10000"
+              }
+              JSON
+              curl --fail-with-body -sS -X PUT \
+                -H 'Content-Type: application/json' \
+                --data @/tmp/connector.json \
+                http://debezium-connect.odp-data.svc.cluster.local:8083/connectors/odp-orders/config
+              for _ in $(seq 1 60); do
+                status="$(curl -fsS http://debezium-connect.odp-data.svc.cluster.local:8083/connectors/odp-orders/status || true)"
+                if grep -q '"state":"RUNNING"' <<<"${status//[[:space:]]/}"; then
+                  echo "$status"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "Connector did not reach RUNNING state" >&2
+              curl -sS http://debezium-connect.odp-data.svc.cluster.local:8083/connectors/odp-orders/status || true
+              exit 1
+          env:
+            - name: DEBEZIUM_PASSWORD
+              valueFrom: {secretKeyRef: {name: debezium-credentials, key: password}}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext: {allowPrivilegeEscalation: false}

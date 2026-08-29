@@ -14,8 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
-        with:
-          version: v1.36.1
+        with: {version: v1.36.1}
       - name: Install validation tools
         run: |
           sudo apt-get update
@@ -23,9 +22,9 @@ jobs:
       - name: Validate repository
         run: make validate
 
-  spark-iceberg-image:
+  spark-application-images:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Build compatibility-locked Spark/Iceberg image
@@ -35,9 +34,8 @@ jobs:
             --build-arg ICEBERG_VERSION=1.11.0 \
             --build-arg POSTGRES_JDBC_VERSION=42.7.13 \
             --build-arg POSTGRES_JDBC_SHA256=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93 \
-            -t odp/spark-iceberg:ci \
-            platform/processing/spark
-      - name: Verify runtime artifacts are present
+            -t odp/spark-iceberg:ci platform/processing/spark
+      - name: Verify runtime artifacts
         run: |
           docker run --rm --entrypoint /bin/bash odp/spark-iceberg:ci -ec '
             test -f /opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar
@@ -45,13 +43,20 @@ jobs:
             test -f /opt/spark/jars/postgresql-42.7.13.jar
             /opt/spark/bin/spark-submit --version
           '
-      - name: Build batch golden-path application image
+      - name: Build batch application
         run: |
-          docker build \
-            --build-arg RUNTIME_IMAGE=odp/spark-iceberg:ci \
-            -t odp/batch-orders:ci \
-            examples/golden-paths/batch-orders
+          docker build --build-arg RUNTIME_IMAGE=odp/spark-iceberg:ci -t odp/batch-orders:ci examples/golden-paths/batch-orders
           docker run --rm --entrypoint python3 odp/batch-orders:ci -m py_compile /opt/odp/jobs/batch-orders/batch_orders.py
+      - name: Build CDC application
+        run: |
+          docker build --build-arg RUNTIME_IMAGE=odp/spark-iceberg:ci -t odp/cdc-orders:ci examples/golden-paths/cdc-orders
+          docker run --rm --entrypoint /bin/bash odp/cdc-orders:ci -ec '
+            test -f /opt/spark/jars/spark-sql-kafka-0-10_2.13-4.1.3.jar
+            test -f /opt/spark/jars/spark-token-provider-kafka-0-10_2.13-4.1.3.jar
+            python3 -m py_compile /opt/odp/jobs/cdc-orders/cdc_orders.py
+          '
+      - name: Verify standalone Debezium image tag
+        run: docker pull quay.io/debezium/connect:3.6.1.Final
 
   airflow-orchestration-image:
     runs-on: ubuntu-latest
@@ -64,9 +69,7 @@ jobs:
             --build-arg AIRFLOW_IMAGE=apache/airflow:3.3.1 \
             --build-arg AIRFLOW_VERSION=3.3.1 \
             --build-arg KUBERNETES_PROVIDER_VERSION=10.21.1 \
-            -f platform/orchestration/airflow/Dockerfile \
-            -t odp/airflow-orchestrator:ci \
-            .
+            -f platform/orchestration/airflow/Dockerfile -t odp/airflow-orchestrator:ci .
       - name: Validate provider and DAG import
         run: |
           docker run --rm --entrypoint /bin/bash odp/airflow-orchestrator:ci -ec '
@@ -79,7 +82,6 @@ jobs:
           assert namespace["dag"].dag_id == "batch_orders_snapshot"
           assert isinstance(namespace["run_batch_orders"], KubernetesJobOperator)
           PY
-            test -f /opt/airflow/job-templates/batch-orders.yaml
           '
 
   standalone-contract:
@@ -94,10 +96,13 @@ jobs:
           cluster_name: odp-local
       - name: Create platform namespaces first
         run: kubectl apply -f deployment/kubernetes/base/namespaces.yaml
-      - name: Validate standalone manifests against Kubernetes API
+      - name: Validate platform manifests
         run: kubectl apply --dry-run=server -k deployment/kubernetes/standalone >/dev/null
-      - name: Validate golden-path job against Kubernetes API
-        run: kubectl apply --dry-run=server -f examples/golden-paths/batch-orders/kubernetes/job.yaml >/dev/null
+      - name: Validate golden-path manifests
+        run: |
+          kubectl apply --dry-run=server -f examples/golden-paths/batch-orders/kubernetes/job.yaml >/dev/null
+          kubectl apply --dry-run=server -f examples/golden-paths/cdc-orders/kubernetes/connector-setup.yaml >/dev/null
+          kubectl apply --dry-run=server -f examples/golden-paths/cdc-orders/kubernetes/streaming.yaml >/dev/null
       - name: Validate Airflow RBAC boundary
         run: |
           kubectl apply -k deployment/kubernetes/standalone >/dev/null

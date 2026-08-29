@@ -11,7 +11,7 @@ permissions:
 jobs:
   full-standalone:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
       - uses: helm/kind-action@v1
@@ -31,16 +31,20 @@ jobs:
         run: make batch-golden-path-test
       - name: Batch golden path via Airflow
         run: make airflow-batch-test
+      - name: CDC golden path
+        run: make cdc-golden-path-test
       - name: Diagnostics on failure
         if: failure()
         run: |
           kubectl get pods -A -o wide || true
-          kubectl -n odp-data get jobs -o wide || true
+          kubectl -n odp-data get jobs,pvc -o wide || true
           kubectl -n odp-data describe pods || true
           kubectl -n odp-system describe pods || true
           kubectl -n odp-data logs deployment/postgres --tail=200 || true
           kubectl -n odp-data logs deployment/kafka --tail=200 || true
+          kubectl -n odp-data logs deployment/debezium-connect --tail=300 || true
+          kubectl -n odp-data logs deployment/cdc-orders --tail=300 || true
           kubectl -n odp-system logs deployment/polaris --tail=200 || true
           kubectl -n odp-data logs deployment/trino --tail=200 || true
           kubectl -n odp-system logs deployment/airflow --tail=300 || true
-          kubectl -n odp-data logs job/batch-orders --all-containers=true --tail=300 || true
+          kubectl -n odp-data logs job/cdc-orders-connector-setup --all-containers=true --tail=300 || true

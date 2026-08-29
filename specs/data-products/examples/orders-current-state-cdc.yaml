@@ -1,0 +1,18 @@
+apiVersion: odp/v1alpha1
+kind: DataProduct
+metadata:
+  name: orders-current-state-cdc
+  domain: commerce
+spec:
+  owner:
+    team: commerce-data
+  inputs:
+    - kafka.odp.source.orders
+  outputs:
+    - polaris.silver.orders_cdc
+    - polaris.gold.daily_order_summary_cdc
+  classification: confidential
+  serviceLevel:
+    freshness: 5m
+    availability: 99.5
+  retentionDays: 730

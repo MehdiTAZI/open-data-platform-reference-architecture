@@ -40,6 +40,7 @@ spec:
       labels:
         app.kubernetes.io/name: spark-client
         app.kubernetes.io/part-of: odp
+        odp.io/kubernetes-api-client: "true"
     spec:
       serviceAccountName: spark
       containers:

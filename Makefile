@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor validate build-local-images local-up local-down local-status local-secrets smoke-test spark-smoke-test lakehouse-smoke-test batch-golden-path-test airflow-batch-test
+.PHONY: help doctor validate build-local-images local-up local-down local-status local-secrets smoke-test spark-smoke-test lakehouse-smoke-test batch-golden-path-test airflow-batch-test cdc-golden-path-test
 
 help:
 	@echo "Open Data Platform Reference Architecture"
@@ -19,6 +19,7 @@ help:
 	@echo "  lakehouse-smoke-test    Verify Spark write -> Trino read through Polaris/Iceberg"
 	@echo "  batch-golden-path-test  Run and replay PostgreSQL -> Spark -> Iceberg -> Trino demo"
 	@echo "  airflow-batch-test      Execute the Batch golden path through the Airflow DAG"
+	@echo "  cdc-golden-path-test    Validate PostgreSQL WAL -> Debezium -> Kafka -> Spark CDC"
 
 doctor:
 	@./scripts/doctor.sh
@@ -55,3 +56,6 @@ batch-golden-path-test:
 
 airflow-batch-test:
 	@./scripts/airflow-batch-test.sh
+
+cdc-golden-path-test:
+	@./scripts/cdc-golden-path-test.sh

@@ -13,8 +13,6 @@ fi
 kubectl apply -f deployment/kubernetes/base/namespaces.yaml
 ./scripts/local-secrets.sh
 
-# Mirror the root Polaris credential into the data namespace for standalone clients.
-# Cross-namespace Secret references are intentionally impossible in Kubernetes.
 polaris_secret="$(kubectl -n odp-system get secret polaris-root-credentials -o jsonpath='{.data.client-secret}' | python3 -c 'import base64,sys; print(base64.b64decode(sys.stdin.buffer.read()).decode())')"
 kubectl -n odp-data create secret generic polaris-client-credentials \
   --from-literal=client-secret="$polaris_secret" --dry-run=client -o yaml | kubectl apply -f -
@@ -28,6 +26,7 @@ echo "Waiting for standalone services..."
 kubectl -n odp-data rollout status deployment/postgres --timeout=180s
 kubectl -n odp-data rollout status deployment/garage --timeout=180s
 kubectl -n odp-data rollout status deployment/kafka --timeout=240s
+kubectl -n odp-data rollout status deployment/debezium-connect --timeout=300s
 kubectl -n odp-system wait --for=condition=complete job/polaris-bootstrap --timeout=240s
 kubectl -n odp-system rollout status deployment/polaris --timeout=300s
 kubectl -n odp-system wait --for=condition=complete job/polaris-catalog-setup --timeout=240s

@@ -16,6 +16,7 @@ spec:
         app.kubernetes.io/name: batch-orders
         app.kubernetes.io/part-of: odp
         odp.io/golden-path: batch
+        odp.io/kubernetes-api-client: "true"
     spec:
       restartPolicy: Never
       serviceAccountName: spark
@@ -42,8 +43,7 @@ spec:
                 local:///opt/odp/jobs/batch-orders/batch_orders.py
           env:
             - name: POD_IP
-              valueFrom:
-                fieldRef: {fieldPath: status.podIP}
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - {name: POLARIS_CLIENT_ID, value: root}
             - name: POLARIS_CLIENT_SECRET
               valueFrom: {secretKeyRef: {name: polaris-client-credentials, key: client-secret}}
