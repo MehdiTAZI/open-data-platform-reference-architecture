@@ -45,6 +45,22 @@ docker build \
   .
 
 if kind get clusters | grep -qx "$cluster_name"; then
-  echo "Loading reference images into Kind cluster $cluster_name"
-  kind load docker-image --name "$cluster_name" "$runtime_image" "$batch_image" "$cdc_image" "$airflow_image"
+  # kind v0.31's image loader does not understand the containerd config v4
+  # used by Kubernetes 1.36 Kind nodes. Import the Docker archive directly into
+  # each node's k8s.io containerd namespace instead. This preserves Kubernetes
+  # 1.36 while keeping local images available with imagePullPolicy=IfNotPresent.
+  mkdir -p .local
+  image_archive=".local/odp-reference-images.tar"
+  images=("$runtime_image" "$batch_image" "$cdc_image" "$airflow_image")
+
+  echo "Saving reference images for Kind cluster $cluster_name"
+  docker save -o "$image_archive" "${images[@]}"
+
+  while IFS= read -r node; do
+    [[ -n "$node" ]] || continue
+    echo "Importing reference images into Kind node $node"
+    docker exec -i "$node" ctr --namespace k8s.io images import - < "$image_archive"
+  done < <(kind get nodes --name "$cluster_name")
+
+  rm -f "$image_archive"
 fi
