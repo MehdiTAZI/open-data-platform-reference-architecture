@@ -17,12 +17,24 @@ run_once() {
 }
 
 validate_business_result() {
+  local expected_bronze="$1"
+  local expected_runs="$2"
   local bronze_count
+  local silver_count
+  local run_count
   local summary
 
   bronze_count="$(kubectl -n odp-data exec deployment/trino -- trino --output-format TSV --execute \
-    'SELECT count(*) FROM polaris.bronze.orders_snapshot')"
-  [[ "${bronze_count//$'\r'/}" == "6" ]]
+    'SELECT count(*) FROM polaris.bronze.orders_raw')"
+  [[ "${bronze_count//$'\r'/}" == "$expected_bronze" ]]
+
+  silver_count="$(kubectl -n odp-data exec deployment/trino -- trino --output-format TSV --execute \
+    'SELECT count(*) FROM polaris.silver.orders')"
+  [[ "${silver_count//$'\r'/}" == "6" ]]
+
+  run_count="$(kubectl -n odp-data exec deployment/trino -- trino --output-format TSV --execute \
+    "SELECT count(*) FROM polaris.platform.pipeline_runs WHERE status = 'SUCCESS'")"
+  [[ "${run_count//$'\r'/}" == "$expected_runs" ]]
 
   summary="$(kubectl -n odp-data exec deployment/trino -- trino --output-format TSV_HEADER --execute \
     "SELECT CAST(sum(order_count) AS BIGINT) AS orders, CAST(sum(gross_amount) AS VARCHAR) AS gross, CAST(sum(completed_amount) AS VARCHAR) AS completed FROM polaris.gold.daily_order_summary")"
@@ -33,13 +45,13 @@ validate_business_result() {
 echo "[1/4] First batch execution"
 run_once
 
-echo "[2/4] Validate published result through Trino"
-validate_business_result
+echo "[2/4] Validate first publication and Bronze audit record"
+validate_business_result 6 1
 
 echo "[3/4] Replay identical source snapshot"
 run_once
 
-echo "[4/4] Validate idempotent business result"
-validate_business_result
+echo "[4/4] Validate append-only Bronze and idempotent Silver/Gold"
+validate_business_result 12 2
 
-echo "Batch golden path passed: PostgreSQL -> Spark -> Iceberg/Polaris -> Trino, including replay."
+echo "Batch golden path passed: replay is auditable in Bronze and idempotent in Silver/Gold."
