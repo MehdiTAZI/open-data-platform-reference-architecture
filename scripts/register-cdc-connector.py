@@ -49,6 +49,7 @@ def connector_config():
         "snapshot.mode": "initial",
         "tombstones.on.delete": "false",
         "decimal.handling.mode": "string",
+        "time.precision.mode": "connect",
         "key.converter": "org.apache.kafka.connect.json.JsonConverter",
         "key.converter.schemas.enable": "false",
         "value.converter": "org.apache.kafka.connect.json.JsonConverter",
