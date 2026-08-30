@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pyspark.sql import DataFrame, SparkSession, functions as F
 
-from odp_data_quality.contracts import DATASET_RULE_TYPES, DataContract, load_contract
+from odp_data_quality.contracts import DATASET_RULE_TYPES, load_contract
 from odp_data_quality.quality import DataQualityFailure, RuleMetric, evaluate, metrics_dataframe
 
 from .config import CdcConfig
@@ -105,6 +105,47 @@ def persist_run(
     append_table(spark, row, config.run_table)
 
 
+def _anti_join_event_ids(spark: SparkSession, df: DataFrame, table_name: str) -> DataFrame:
+    current = df.dropDuplicates(["_event_id"])
+    if not spark.catalog.tableExists(table_name):
+        return current
+    known = spark.table(table_name).select("_event_id").distinct()
+    return current.join(known, "_event_id", "left_anti")
+
+
+def unseen_bronze_events(spark: SparkSession, config: CdcConfig, batch: DataFrame) -> DataFrame:
+    return _anti_join_event_ids(spark, batch, config.bronze_table)
+
+
+def unprocessed_events(spark: SparkSession, config: CdcConfig, batch: DataFrame) -> DataFrame:
+    return _anti_join_event_ids(spark, batch, config.processed_events_table)
+
+
+def append_quarantine_once(spark: SparkSession, config: CdcConfig, invalid: DataFrame) -> int:
+    pending = _anti_join_event_ids(spark, invalid, config.quarantine_table).cache()
+    count = pending.count()
+    if count:
+        append_table(spark, pending, config.quarantine_table)
+    return count
+
+
+def mark_processed(spark: SparkSession, config: CdcConfig, events: DataFrame, run_id: str) -> None:
+    markers = (
+        events.select(
+            "_event_id",
+            "_kafka_topic",
+            "_kafka_partition",
+            "_kafka_offset",
+            "_source_lsn",
+        )
+        .dropDuplicates(["_event_id"])
+        .withColumn("pipeline", F.lit("cdc-orders"))
+        .withColumn("run_id", F.lit(run_id))
+        .withColumn("processed_at", F.current_timestamp())
+    )
+    append_table(spark, markers, config.processed_events_table)
+
+
 def merge_deletes(spark: SparkSession, table_name: str, deletes: DataFrame) -> int:
     count = deletes.select("order_id").distinct().count()
     if count == 0 or not spark.catalog.tableExists(table_name):
@@ -177,14 +218,6 @@ def rebuild_gold(spark: SparkSession, config: CdcConfig) -> None:
     gold.writeTo(config.gold_table).using("iceberg").createOrReplace()
 
 
-def unseen_events(spark: SparkSession, config: CdcConfig, batch: DataFrame) -> DataFrame:
-    current = batch.dropDuplicates(["_event_id"])
-    if not spark.catalog.tableExists(config.bronze_table):
-        return current
-    known = spark.table(config.bronze_table).select("_event_id").distinct()
-    return current.join(known, "_event_id", "left_anti")
-
-
 def run_pipeline() -> int:
     config = CdcConfig()
     contract = load_contract(config.contract_path)
@@ -204,60 +237,100 @@ def run_pipeline() -> int:
 
     def process_batch(batch_df: DataFrame, batch_id: int) -> None:
         nonlocal counters
-        new_events = unseen_events(spark, config, batch_df).cache()
-        new_count = new_events.count()
-        if new_count == 0:
+        deduplicated = batch_df.dropDuplicates(["_event_id"]).cache()
+
+        bronze_candidates = unseen_bronze_events(spark, config, deduplicated).cache()
+        bronze_count = bronze_candidates.count()
+        if bronze_count:
+            bronze = (
+                bronze_candidates.withColumn("_run_id", F.lit(run_id))
+                .withColumn("_pipeline", F.lit("cdc-orders"))
+                .withColumn("_contract_version", F.lit(contract_version))
+                .withColumn("_ingested_at", F.current_timestamp())
+            )
+            append_table(spark, bronze, config.bronze_table)
+
+        pending = unprocessed_events(spark, config, deduplicated).cache()
+        pending_count = pending.count()
+        if pending_count == 0:
+            print(
+                f"CDC_MICROBATCH_NOOP run_id={run_id} batch_id={batch_id} "
+                f"bronze_appended={bronze_count}"
+            )
             return
-        counters["input"] += new_count
+        counters["input"] += pending_count
 
-        bronze = (
-            new_events.withColumn("_run_id", F.lit(run_id))
-            .withColumn("_pipeline", F.lit("cdc-orders"))
-            .withColumn("_contract_version", F.lit(contract_version))
-            .withColumn("_ingested_at", F.current_timestamp())
-        )
-        append_table(spark, bronze, config.bronze_table)
-
-        latest = latest_change_per_order(new_events).cache()
+        latest = latest_change_per_order(pending).cache()
         deletes = latest.filter(F.col("_cdc_op") == "d")
         upserts = canonical_upserts(latest, run_id, contract_version).cache()
 
         valid_upserts = upserts
         rejected_count = 0
         if upserts.count() > 0:
-            ingress = evaluate(upserts, row_contract)
-            persist_metrics(spark, config, run_id, contract_version, prefixed_metrics("ingress", ingress.metrics))
-            valid_upserts = ingress.valid.cache()
-            invalid = ingress.invalid.cache()
-            rejected_count = invalid.count()
-            if rejected_count:
-                append_table(spark, invalid, config.quarantine_table)
-
-        deleted_count = merge_deletes(spark, config.silver_table, deletes)
-        upserted_count = merge_upserts(spark, config.silver_table, valid_upserts)
-        counters["valid"] += deleted_count + upserted_count
-        counters["rejected"] += rejected_count
-
-        if spark.catalog.tableExists(config.silver_table):
-            state = spark.table(config.silver_table).cache()
             try:
-                state_evaluation = evaluate(state, contract)
+                ingress = evaluate(upserts, row_contract)
             except DataQualityFailure as exc:
-                persist_metrics(spark, config, run_id, contract_version, prefixed_metrics("state", exc.metrics))
+                persist_metrics(
+                    spark,
+                    config,
+                    run_id,
+                    contract_version,
+                    prefixed_metrics("ingress", exc.metrics),
+                )
                 raise
             persist_metrics(
                 spark,
                 config,
                 run_id,
                 contract_version,
-                prefixed_metrics("state", state_evaluation.metrics),
+                prefixed_metrics("ingress", ingress.metrics),
             )
-            if state_evaluation.invalid.count() > 0:
-                raise RuntimeError("Trusted CDC Silver state violates quarantine-level contract rules")
+            valid_upserts = ingress.valid.cache()
+            invalid = ingress.invalid.cache()
+            rejected_count = invalid.count()
+            if rejected_count:
+                append_quarantine_once(spark, config, invalid)
+
+        deleted_count = merge_deletes(spark, config.silver_table, deletes)
+        upserted_count = merge_upserts(spark, config.silver_table, valid_upserts)
+        counters["valid"] += deleted_count + upserted_count
+        counters["rejected"] += rejected_count
+
+        state = (
+            spark.table(config.silver_table).cache()
+            if spark.catalog.tableExists(config.silver_table)
+            else valid_upserts.limit(0).cache()
+        )
+        try:
+            state_evaluation = evaluate(state, contract)
+        except DataQualityFailure as exc:
+            persist_metrics(
+                spark,
+                config,
+                run_id,
+                contract_version,
+                prefixed_metrics("state", exc.metrics),
+            )
+            raise
+        persist_metrics(
+            spark,
+            config,
+            run_id,
+            contract_version,
+            prefixed_metrics("state", state_evaluation.metrics),
+        )
+        if state_evaluation.invalid.count() > 0:
+            raise RuntimeError("Trusted CDC Silver state violates quarantine-level contract rules")
+        if spark.catalog.tableExists(config.silver_table):
             rebuild_gold(spark, config)
 
+        # Only after trusted state and Gold have been published do these event IDs
+        # become committed processing state. A failure before this point is replayed.
+        mark_processed(spark, config, pending, run_id)
+
         print(
-            f"CDC_MICROBATCH_SUCCESS run_id={run_id} batch_id={batch_id} new_events={new_count} "
+            f"CDC_MICROBATCH_SUCCESS run_id={run_id} batch_id={batch_id} "
+            f"pending_events={pending_count} bronze_appended={bronze_count} "
             f"upserts={upserted_count} deletes={deleted_count} rejected={rejected_count}"
         )
 
