@@ -22,6 +22,7 @@ postgres_user="$(decode_secret username)"
 postgres_password="$(decode_secret password)"
 
 register_connector() {
+  mkdir -p .local
   kubectl -n odp-data port-forward svc/debezium-connect 18083:8083 >.local/debezium-port-forward.log 2>&1 &
   port_forward_pid="$!"
   POSTGRES_USER="$postgres_user" POSTGRES_PASSWORD="$postgres_password" \
@@ -89,11 +90,13 @@ apply_source_changes() {
 validate_initial() {
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.bronze.orders_cdc_events')" == "6" ]]
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.silver.orders_cdc')" == "6" ]]
+  [[ "$(query_scalar 'SELECT count(*) FROM polaris.platform.cdc_processed_events')" == "6" ]]
   [[ "$(query_scalar "SELECT count(*) FROM polaris.platform.data_quality_results WHERE pipeline = 'cdc-orders'")" -gt 0 ]]
 }
 
 validate_changed_state() {
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.bronze.orders_cdc_events')" == "9" ]]
+  [[ "$(query_scalar 'SELECT count(*) FROM polaris.platform.cdc_processed_events')" == "9" ]]
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.silver.orders_cdc')" == "6" ]]
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.silver.orders_cdc WHERE order_id = 1003')" == "0" ]]
   [[ "$(query_scalar 'SELECT count(*) FROM polaris.silver.orders_cdc WHERE order_id = 1007')" == "1" ]]
@@ -127,8 +130,8 @@ validate_changed_state
 echo "[6/7] Replay Kafka history without new source changes"
 run_cdc_job
 
-echo "[7/7] Validate replay-safe Bronze and current Silver/Gold"
+echo "[7/7] Validate replay-safe Bronze, processing commit state and current Silver/Gold"
 validate_changed_state
 [[ "$(query_scalar "SELECT count(*) FROM polaris.platform.pipeline_runs WHERE pipeline = 'cdc-orders' AND status = 'FAILED'")" == "0" ]]
 
-echo "CDC golden path passed: PostgreSQL -> Debezium -> Kafka -> Spark Structured Streaming -> Iceberg, including update/insert/delete and replay."
+echo "CDC golden path passed: PostgreSQL -> Debezium -> Kafka -> Spark Structured Streaming -> Iceberg, including update/insert/delete, durable processing commits and replay."
