@@ -35,13 +35,14 @@ The target is deliberately dual-mode:
 | Production object storage | Cloud-native / explicitly supported S3-compatible storage |
 | Event streaming | Apache Kafka |
 | CDC | Debezium / Kafka Connect |
-| Batch & general-purpose compute | Apache Spark |
+| Batch & streaming compute | Apache Spark |
 | Lakehouse table format | Apache Iceberg |
 | Iceberg REST catalog | Apache Polaris |
 | Catalog persistence | PostgreSQL |
 | SQL serving / federation | Trino |
 | Orchestration | Apache Airflow |
 | Analytics transformation | dbt |
+| Data quality control plane | ODP Data Contracts + shared Spark adapter |
 | Lineage standard | OpenLineage |
 | Telemetry standard | OpenTelemetry |
 | Metrics / dashboards | Prometheus / Grafana |
@@ -123,25 +124,22 @@ See [`docs/architecture/runtime-interfaces.md`](docs/architecture/runtime-interf
 
 ```text
 .
-├── architecture/              # Reference diagrams, capability model and patterns
 ├── config/                    # Central compatibility/version inputs
 ├── docs/
-│   ├── architecture/          # Logical/physical architecture and NFRs
+│   ├── architecture/          # Principles, runtime model, NFRs and patterns
 │   ├── adr/                   # Architecture Decision Records
-│   ├── governance/            # Ownership, classification, quality, retention
-│   ├── operations/            # SLOs, monitoring, DR, capacity, FinOps
-│   └── security/              # Threat model, IAM, secrets, encryption, network
+│   ├── governance/            # Ownership, classification and quality guidance
+│   ├── operations/            # SLOs, monitoring, DR, capacity and FinOps
+│   └── security/              # Threat model and security guidance
 ├── specs/
-│   ├── data-contracts/        # Machine-readable data contracts
-│   ├── data-products/         # Machine-readable data product definitions
-│   └── policies/              # Policy-as-code inputs
-├── platform/                  # Capability implementations
-├── infrastructure/            # OpenTofu modules and environment composition
-├── deployment/                # Kubernetes, Helm and GitOps deployment assets
-├── examples/                  # End-to-end golden paths
-├── tests/                     # Unit, contract, integration, infra and E2E tests
-├── scripts/                   # Developer and CI utility scripts
-└── .github/                   # CI workflows and contribution automation
+│   ├── data-contracts/        # Machine-readable schemas and quality expectations
+│   └── data-products/         # Machine-readable data product definitions
+├── platform/                  # Reusable platform capabilities and shared libraries
+├── infrastructure/            # OpenTofu bootstrap, modules and cloud compositions
+├── deployment/                # Kubernetes and GitOps deployment assets
+├── examples/golden-paths/     # Executable batch and CDC reference applications + tests
+├── scripts/                   # Developer, integration and CI utility scripts
+└── .github/                   # CI, security, IaC and standalone integration workflows
 ```
 
 ## Standalone quick start
@@ -153,6 +151,13 @@ make doctor
 make validate
 make local-up
 make smoke-test
+```
+
+Run the executable data-engineering golden paths:
+
+```bash
+make batch-golden-path-test
+make cdc-golden-path-test
 ```
 
 Inspect the environment:
@@ -179,12 +184,38 @@ Kind / Kubernetes
 ├── odp-data
 │   ├── Garage S3-compatible object storage
 │   ├── Apache Kafka (single-node KRaft)
-│   ├── PostgreSQL
+│   ├── Debezium / Kafka Connect
+│   ├── PostgreSQL with logical replication enabled
 │   ├── Apache Spark client + dynamic Kubernetes executors
 │   └── Trino
 └── odp-observability
-    └── reserved for the observability stack
+    ├── OpenTelemetry Collector
+    ├── Prometheus
+    └── Grafana
 ```
+
+## Executable golden paths
+
+### Batch snapshot
+
+[`examples/golden-paths/batch-orders`](examples/golden-paths/batch-orders) demonstrates:
+
+```text
+PostgreSQL -> Spark -> Bronze -> Silver / Quarantine -> Gold -> Iceberg/Polaris -> Trino
+```
+
+It includes append-only Bronze audit history, contract-driven DQ, rule metrics, OpenLineage run events, reconciliation and replay validation.
+
+### Change Data Capture
+
+[`examples/golden-paths/cdc-orders`](examples/golden-paths/cdc-orders) demonstrates:
+
+```text
+PostgreSQL -> Debezium -> Kafka -> Spark Structured Streaming
+           -> Bronze -> Silver MERGE/DELETE -> Gold -> Iceberg/Polaris -> Trino
+```
+
+It includes update/insert/delete handling, durable event identity, a separate processing-commit table, contract-driven quality, quarantine, OpenLineage and replay after checkpoint loss or partial downstream failure.
 
 ## Delivery roadmap
 
@@ -197,47 +228,50 @@ Kind / Kubernetes
 - Data product and data contract specifications
 - Repository quality gates and CI skeleton
 
-### V0.2 — Standalone executable platform 🚧
-
-Implemented in the current iteration:
+### V0.2 — Standalone executable platform ✅
 
 - Kind-based local Kubernetes runtime
 - centrally pinned component versions
 - generated standalone-only secrets
-- PostgreSQL metadata service
+- PostgreSQL source/metadata services
 - S3-compatible Garage storage
 - Kafka 4.x KRaft event backbone
+- Debezium / Kafka Connect CDC runtime
 - PostgreSQL-backed Apache Polaris catalog
-- Spark-on-Kubernetes runtime
+- Spark-on-Kubernetes runtime with Iceberg and Kafka connectors
 - Trino serving runtime
 - Airflow standalone orchestration runtime
+- Prometheus, Grafana and OpenTelemetry baseline
 - default-deny networking plus explicit standalone allow rules
 - resource constraints, probes and smoke tests
-- scheduled full-stack integration workflow
+- scheduled and PR-gated full-stack integration workflow
 
-Still targeted before declaring V0.2 complete:
+### V0.3 — Golden pipelines 🚧
 
-- create and validate a Polaris-backed Iceberg catalog against the S3 endpoint
-- build the Spark + Iceberg runtime image with checksum-verified dependencies
-- add Prometheus/Grafana/OpenTelemetry baseline
-- add compatibility lock/digest resolution for release artifacts
+Implemented:
 
-### V0.3 — Golden pipelines
+- ✅ Batch: PostgreSQL → Spark → Iceberg/Polaris → Trino
+- ✅ CDC: PostgreSQL → Debezium → Kafka → Spark Structured Streaming → Iceberg
+- ✅ shared Data Contract-driven quality with `fail` / `quarantine` / `warn`
+- ✅ rule-level DQ results and OpenLineage run events
 
-- Batch: PostgreSQL → Spark → Iceberg/Polaris → Trino
-- CDC: PostgreSQL → Debezium → Kafka → Spark → Iceberg
-- Streaming: Kafka → Structured Streaming → Iceberg
-- dbt transformations, data quality and OpenLineage
+Remaining V0.3 extensions:
+
+- Streaming: Kafka → Structured Streaming → Iceberg with watermark/late-event semantics
+- dbt analytical transformations and tests
+- schema-evolution compatibility scenarios
+- explicit backfill/incremental batch variant
 
 ### V1.0 — Production reference
 
 - Environment promotion and GitOps
-- Cloud adapters for AWS, Azure and GCP
-- Workload identity and secret-manager integration
-- Observability, SLOs, runbooks and alerting
-- Backup/restore, DR and capacity guidance
+- Cloud adapters beyond the implemented AWS reference composition
+- production workload identity and secret-manager integrations by workload
+- production observability, SLOs, runbooks and alerting
+- backup/restore, DR and capacity validation
 - FinOps tagging and cost allocation
-- Policy enforcement and supply-chain security
+- policy enforcement and supply-chain security
+- immutable release promotion and drift management
 
 ## Production readiness model
 
