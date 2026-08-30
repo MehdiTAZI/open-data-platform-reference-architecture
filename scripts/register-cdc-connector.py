@@ -58,6 +58,23 @@ def connector_config():
     }
 
 
+def wait_running(base_url: str, attempts: int = 90):
+    last = None
+    for _ in range(attempts):
+        try:
+            last = request_json("GET", f"{base_url}/connectors/{CONNECTOR_NAME}/status")
+            connector_running = last.get("connector", {}).get("state") == "RUNNING"
+            tasks = last.get("tasks", [])
+            tasks_running = bool(tasks) and all(task.get("state") == "RUNNING" for task in tasks)
+            if connector_running and tasks_running:
+                print(json.dumps(last, indent=2, sort_keys=True))
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    raise RuntimeError(f"Debezium connector did not become RUNNING: {last}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="http://127.0.0.1:18083")
@@ -75,8 +92,7 @@ def main():
         request_json("PUT", f"{base_url}/connectors/{CONNECTOR_NAME}/config", payload["config"])
         print(f"Updated Debezium connector {CONNECTOR_NAME}")
 
-    status = request_json("GET", f"{base_url}/connectors/{CONNECTOR_NAME}/status")
-    print(json.dumps(status, indent=2, sort_keys=True))
+    wait_running(base_url)
 
 
 if __name__ == "__main__":
