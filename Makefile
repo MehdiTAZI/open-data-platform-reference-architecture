@@ -55,7 +55,7 @@ batch-golden-path-test:
 	@./scripts/batch-golden-path-test.sh
 
 cdc-golden-path-test:
-	@./scripts/cdc-golden-path-test.sh
+	@bash ./scripts/cdc-golden-path-test.sh
 
 airflow-batch-test:
 	@./scripts/airflow-batch-test.sh
