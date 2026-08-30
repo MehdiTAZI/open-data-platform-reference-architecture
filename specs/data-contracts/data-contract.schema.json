@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["apiVersion", "kind", "metadata", "spec"],
   "properties": {
-    "apiVersion": {"const": "odp/v1alpha1"},
+    "apiVersion": {"const": "odp/v1alpha2"},
     "kind": {"const": "DataContract"},
     "metadata": {
       "type": "object",
@@ -37,12 +37,26 @@
           }
         },
         "quality": {
-          "type": "object",
-          "properties": {
-            "uniqueness": {"type": "array", "items": {"type": "string"}},
-            "freshness": {"type": "string"}
-          },
-          "additionalProperties": false
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "severity", "action"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "type": {
+                "enum": ["not_null", "not_blank", "unique", "accepted_values", "range", "regex", "freshness", "row_count"]
+              },
+              "column": {"type": "string"},
+              "severity": {"enum": ["error", "warning"]},
+              "action": {"enum": ["fail", "quarantine", "warn"]},
+              "values": {"type": "array", "minItems": 1},
+              "min": {"type": "number"},
+              "max": {"type": "number"},
+              "pattern": {"type": "string"},
+              "maxAge": {"type": "string", "pattern": "^[1-9][0-9]*(s|m|h|d)$"}
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false

@@ -1,4 +1,4 @@
-apiVersion: odp/v1alpha1
+apiVersion: odp/v1alpha2
 kind: DataContract
 metadata:
   name: batch-orders
@@ -12,5 +12,62 @@ spec:
     - {name: amount, type: "decimal(18,2)", nullable: false, classification: confidential}
     - {name: country, type: string, nullable: false, classification: internal}
   quality:
-    uniqueness: [order_id]
-    freshness: 24h
+    - name: order_id_not_null
+      type: not_null
+      column: order_id
+      severity: error
+      action: quarantine
+    - name: customer_id_not_blank
+      type: not_blank
+      column: customer_id
+      severity: error
+      action: quarantine
+    - name: order_ts_not_null
+      type: not_null
+      column: order_ts
+      severity: error
+      action: quarantine
+    - name: status_not_null
+      type: not_null
+      column: status
+      severity: error
+      action: quarantine
+    - name: status_accepted_values
+      type: accepted_values
+      column: status
+      values: [COMPLETED, CANCELLED, PENDING]
+      severity: error
+      action: quarantine
+    - name: amount_not_null
+      type: not_null
+      column: amount
+      severity: error
+      action: quarantine
+    - name: amount_non_negative
+      type: range
+      column: amount
+      min: 0
+      severity: error
+      action: quarantine
+    - name: country_iso2_shape
+      type: regex
+      column: country
+      pattern: "^[A-Z]{2}$"
+      severity: error
+      action: quarantine
+    - name: order_id_unique
+      type: unique
+      column: order_id
+      severity: error
+      action: quarantine
+    - name: source_non_empty
+      type: row_count
+      min: 1
+      severity: error
+      action: fail
+    - name: order_freshness
+      type: freshness
+      column: order_ts
+      maxAge: 24h
+      severity: warning
+      action: warn

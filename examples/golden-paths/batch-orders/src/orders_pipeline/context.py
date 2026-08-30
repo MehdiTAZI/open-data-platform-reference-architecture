@@ -11,7 +11,7 @@ class PipelineRun:
     started_at: datetime
 
     @classmethod
-    def create(cls, contract_version: str = "v1alpha1") -> "PipelineRun":
+    def create(cls, contract_version: str = "v1alpha2") -> "PipelineRun":
         return cls(
             run_id=str(uuid4()),
             pipeline="batch-orders",

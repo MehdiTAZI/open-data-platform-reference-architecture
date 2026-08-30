@@ -20,8 +20,10 @@ docker build \
 echo "Building $batch_image"
 docker build \
   --build-arg RUNTIME_IMAGE="$runtime_image" \
+  --build-arg PYYAML_VERSION=6.0.3 \
+  -f examples/golden-paths/batch-orders/Dockerfile \
   -t "$batch_image" \
-  examples/golden-paths/batch-orders
+  .
 
 echo "Building $airflow_image"
 docker build \

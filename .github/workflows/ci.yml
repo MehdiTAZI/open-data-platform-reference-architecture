@@ -19,9 +19,27 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck python3-yaml
+          sudo apt-get install -y shellcheck python3-yaml python3-jsonschema
       - name: Validate repository
         run: make validate
+      - name: Validate data contract instances
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import yaml
+          from jsonschema import Draft202012Validator
+
+          schema = json.loads(Path("specs/data-contracts/data-contract.schema.json").read_text())
+          validator = Draft202012Validator(schema)
+          for path in sorted(Path("specs/data-contracts/examples").glob("*.yaml")):
+              instance = yaml.safe_load(path.read_text())
+              errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.path))
+              if errors:
+                  formatted = "\n".join(f"{path}: {error.message}" for error in errors)
+                  raise SystemExit(formatted)
+              print("OK", path)
+          PY
 
   spark-iceberg-image:
     runs-on: ubuntu-latest
@@ -49,9 +67,13 @@ jobs:
         run: |
           docker build \
             --build-arg RUNTIME_IMAGE=odp/spark-iceberg:ci \
+            --build-arg PYYAML_VERSION=6.0.3 \
+            -f examples/golden-paths/batch-orders/Dockerfile \
             -t odp/batch-orders:ci \
-            examples/golden-paths/batch-orders
+            .
           docker run --rm --entrypoint python3 odp/batch-orders:ci -m compileall -q /opt/odp/jobs/batch-orders
+          docker run --rm --entrypoint python3 odp/batch-orders:ci -c \
+            'import sys; sys.path.insert(0, "/opt/odp/jobs/batch-orders"); from orders_pipeline.contracts import load_contract; c=load_contract("/opt/odp/contracts/batch-orders.yaml"); assert c.api_version == "odp/v1alpha2"'
       - name: Run batch golden-path unit and quality tests
         run: |
           docker run --rm \

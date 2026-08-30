@@ -10,6 +10,7 @@ def build_spark() -> SparkSession:
 
     return (
         SparkSession.builder.appName("odp-batch-orders")
+        .config("spark.sql.session.timeZone", "UTC")
         .config(
             "spark.sql.extensions",
             "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
