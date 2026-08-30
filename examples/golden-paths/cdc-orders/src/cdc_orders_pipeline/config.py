@@ -13,3 +13,4 @@ class CdcConfig:
     gold_table: str = "polaris.gold.daily_order_summary_cdc"
     run_table: str = "polaris.platform.pipeline_runs"
     dq_results_table: str = "polaris.platform.data_quality_results"
+    processed_events_table: str = "polaris.platform.cdc_processed_events"
