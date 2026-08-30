@@ -1,0 +1,47 @@
+name: IaC
+
+on:
+  pull_request:
+    paths:
+      - "infrastructure/**"
+      - ".github/workflows/iac.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infrastructure/**"
+      - ".github/workflows/iac.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  opentofu-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.6
+
+      - name: Check formatting
+        run: tofu fmt -check -recursive infrastructure
+
+      - name: Initialize and validate IaC roots
+        shell: bash
+        run: |
+          set -euo pipefail
+          roots=(
+            infrastructure/bootstrap/aws/state
+            infrastructure/modules/aws/network
+            infrastructure/modules/aws/kms
+            infrastructure/modules/aws/object-storage
+            infrastructure/modules/aws/eks
+            infrastructure/modules/aws/workload-identity
+            infrastructure/cloud/aws/dev
+          )
+
+          for root in "${roots[@]}"; do
+            echo "Validating ${root}"
+            tofu -chdir="${root}" init -backend=false -input=false
+            tofu -chdir="${root}" validate
+          done

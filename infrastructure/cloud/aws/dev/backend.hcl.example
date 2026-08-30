@@ -1,0 +1,5 @@
+bucket         = "replace-with-bootstrap-state-bucket"
+key            = "open-data-platform/dev/terraform.tfstate"
+region         = "eu-west-1"
+dynamodb_table = "odp-opentofu-locks"
+encrypt        = true
