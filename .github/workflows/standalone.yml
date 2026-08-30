@@ -2,6 +2,20 @@ name: Standalone Integration
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/standalone.yml"
+      - "Makefile"
+      - "config/versions.yaml"
+      - "deployment/kubernetes/standalone/**"
+      - "examples/golden-paths/cdc-orders/**"
+      - "platform/governance/data-quality/**"
+      - "platform/processing/spark/**"
+      - "scripts/build-local-images.sh"
+      - "scripts/cdc-golden-path-test.sh"
+      - "scripts/local-up.sh"
+      - "scripts/register-cdc-connector.py"
+      - "specs/data-contracts/**"
   schedule:
     - cron: "23 3 * * 1"
 
@@ -11,7 +25,7 @@ permissions:
 jobs:
   full-standalone:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: helm/kind-action@v1
@@ -31,6 +45,8 @@ jobs:
         run: make batch-golden-path-test
       - name: Batch golden path via Airflow
         run: make airflow-batch-test
+      - name: CDC golden path
+        run: make cdc-golden-path-test
       - name: Diagnostics on failure
         if: failure()
         run: |
@@ -40,7 +56,9 @@ jobs:
           kubectl -n odp-system describe pods || true
           kubectl -n odp-data logs deployment/postgres --tail=200 || true
           kubectl -n odp-data logs deployment/kafka --tail=200 || true
+          kubectl -n odp-data logs deployment/debezium-connect --tail=300 || true
           kubectl -n odp-system logs deployment/polaris --tail=200 || true
           kubectl -n odp-data logs deployment/trino --tail=200 || true
           kubectl -n odp-system logs deployment/airflow --tail=300 || true
           kubectl -n odp-data logs job/batch-orders --all-containers=true --tail=300 || true
+          kubectl -n odp-data logs job/cdc-orders --all-containers=true --tail=400 || true
