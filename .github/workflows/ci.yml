@@ -58,9 +58,9 @@ jobs:
             -e PYTHONPATH=/workspace/src \
             -v "$PWD/examples/golden-paths/batch-orders:/workspace:ro" \
             -w /workspace \
-            --entrypoint python3 \
+            --entrypoint /opt/spark/bin/spark-submit \
             odp/batch-orders:ci \
-            -m unittest discover -s /workspace/tests -p 'test_*.py' -v
+            /workspace/tests/run_tests.py
 
   airflow-orchestration-image:
     runs-on: ubuntu-latest
