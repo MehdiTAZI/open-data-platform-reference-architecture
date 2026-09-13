@@ -28,6 +28,7 @@ echo "Waiting for standalone services..."
 kubectl -n odp-data rollout status deployment/postgres --timeout=180s
 kubectl -n odp-data rollout status deployment/garage --timeout=180s
 kubectl -n odp-data rollout status deployment/kafka --timeout=240s
+kubectl -n odp-data rollout status deployment/debezium-connect --timeout=300s
 kubectl -n odp-system wait --for=condition=complete job/polaris-bootstrap --timeout=240s
 kubectl -n odp-system rollout status deployment/polaris --timeout=300s
 kubectl -n odp-system wait --for=condition=complete job/polaris-catalog-setup --timeout=240s

@@ -2,6 +2,7 @@ ARG SPARK_IMAGE=apache/spark:4.1.3-python3
 FROM ${SPARK_IMAGE}
 
 USER root
+ARG SPARK_VERSION=4.1.3
 ARG ICEBERG_VERSION=1.11.0
 ARG POSTGRES_JDBC_VERSION=42.7.13
 ARG POSTGRES_JDBC_SHA256=6e0e4cc2d8cae902084f8a2b18728b073a6fd9d1f87c9d8bff8f298c18185b93
@@ -24,5 +25,24 @@ RUN set -eux; \
     curl -fsSL "${PGJDBC_RELEASE_BASE}/REL${POSTGRES_JDBC_VERSION}/${pg_jar}" -o "/opt/spark/jars/${pg_jar}"; \
     printf '%s  %s\n' "${POSTGRES_JDBC_SHA256}" "/opt/spark/jars/${pg_jar}" | sha256sum -c -; \
     rm -f /tmp/*.sha512
+
+# Resolve the official Spark Kafka connector and its transitive runtime dependencies
+# at image-build time so production jobs do not depend on Maven network access.
+RUN set -eux; \
+    cat > /tmp/resolve-kafka.py <<'PY'
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.master("local[1]").appName("resolve-kafka-dependencies").getOrCreate()
+spark.stop()
+PY
+RUN set -eux; \
+    /opt/spark/bin/spark-submit \
+      --master local[1] \
+      --conf spark.jars.ivy=/tmp/ivy \
+      --packages "org.apache.spark:spark-sql-kafka-0-10_${SCALA_BINARY_VERSION}:${SPARK_VERSION}" \
+      /tmp/resolve-kafka.py; \
+    cp /tmp/ivy/jars/*.jar /opt/spark/jars/; \
+    test -f "/opt/spark/jars/org.apache.spark_spark-sql-kafka-0-10_${SCALA_BINARY_VERSION}-${SPARK_VERSION}.jar"; \
+    test -f "/opt/spark/jars/org.apache.spark_spark-token-provider-kafka-0-10_${SCALA_BINARY_VERSION}-${SPARK_VERSION}.jar"; \
+    rm -rf /tmp/ivy /tmp/resolve-kafka.py
 
 USER 185
